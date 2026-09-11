@@ -52,7 +52,6 @@ final class MissionControlProbe: ObservableObject {
     private var sawSceneMovement = false
     private var exitFadeStarted = false
     private var readySince: TimeInterval?
-    private var capturedReport = false
     private var reportTask: Task<Void, Never>?
     private var lastBadgeSync = 0.0
     private var appCache: [pid_t: AppIdentity] = [:]
@@ -100,18 +99,9 @@ final class MissionControlProbe: ObservableObject {
         }
 
         if phase == .normal {
+            resetMissionControl()
             phase = .entering
-            stableProbeReads = 0
-            unreadableProbeReads = 0
-            sawSceneMovement = false
-            exitFadeStarted = false
-            readySince = nil
-            capturedReport = false
-            reportTask?.cancel()
-            reportTask = nil
-            lastBadgeSync = 0
             sceneProbe.show()
-            overlays.hide()
             status = "Mission Control entering…"
             return 33
         }
@@ -183,20 +173,7 @@ final class MissionControlProbe: ObservableObject {
             animated: shouldFadeIn)
         status = "Mission Control active — labeled \(badges.count) of \(thumbnails.count) windows."
 
-        if !capturedReport {
-            capturedReport = true
-            reportTask = Task { @MainActor [weak self] in
-                do {
-                    try await Task.sleep(for: .milliseconds(250))
-                } catch { return }
-                guard let self, self.phase == .active else { return }
-                let payload = self.makeReport(
-                    for: missionControl,
-                    dockPID: dockPID,
-                    windows: windows)
-                self.report = "Captured \(Date().formatted(date: .omitted, time: .standard))\n\n\(payload)"
-            }
-        }
+        scheduleReport(for: missionControl, dockPID: dockPID, windows: windows)
         return 33
     }
 
@@ -275,6 +252,23 @@ final class MissionControlProbe: ObservableObject {
             + abs(lhs.minY - rhs.minY)
             + abs(lhs.width - rhs.width)
             + abs(lhs.height - rhs.height)
+    }
+
+    private func scheduleReport(
+        for missionControl: AXUIElement,
+        dockPID: pid_t,
+        windows: [WindowInfo]
+    ) {
+        // Keep the completed task until reset: capture at most once per session.
+        guard reportTask == nil else { return }
+        reportTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+            } catch { return }
+            guard let self, self.phase == .active else { return }
+            let payload = self.makeReport(for: missionControl, dockPID: dockPID, windows: windows)
+            self.report = "Captured \(Date().formatted(date: .omitted, time: .standard))\n\n\(payload)"
+        }
     }
 
     private func makeReport(

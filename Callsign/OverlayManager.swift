@@ -147,14 +147,7 @@ private final class BadgePanel {
         fadeTask?.cancel()
         fadeTask = nil
 
-        let text: String? = switch configuration.label {
-        case .appName:
-            badge.appName
-        case .windowTitle:
-            badge.windowTitle.isEmpty ? badge.appName : badge.windowTitle
-        case .iconOnly:
-            nil
-        }
+        let text = configuration.label.text(appName: badge.appName, windowTitle: badge.windowTitle)
 
         if representedPID != badge.pid
             || representedText != text
@@ -174,10 +167,7 @@ private final class BadgePanel {
             height: max(fittingSize.height, 38 * configuration.scale))
         hostingView.frame = NSRect(origin: .zero, size: size)
 
-        let axOrigin = badgeOrigin(
-            thumbnail: badge.thumbnailFrame,
-            badgeSize: size,
-            configuration: configuration)
+        let axOrigin = configuration.badgeOrigin(thumbnail: badge.thumbnailFrame, badgeSize: size)
         let primaryScreenTop = NSScreen.screens.first?.frame.maxY ?? 0
         window.setFrame(NSRect(
             x: axOrigin.x,
@@ -221,38 +211,6 @@ private final class BadgePanel {
             guard !Task.isCancelled else { return }
             self.window.orderOut(nil)
         }
-    }
-
-    private func badgeOrigin(
-        thumbnail: CGRect,
-        badgeSize: CGSize,
-        configuration: TagConfiguration
-    ) -> CGPoint {
-        let overlap = CGFloat(configuration.overlap)
-        let x: CGFloat = switch configuration.position {
-        case .topLeft, .bottomLeft:
-            thumbnail.minX
-        case .topCenter, .bottomCenter:
-            thumbnail.midX - badgeSize.width / 2
-        case .topRight, .bottomRight:
-            thumbnail.maxX - badgeSize.width
-        case .leftCenter:
-            thumbnail.minX - badgeSize.width * (1 - overlap)
-        case .rightCenter:
-            thumbnail.maxX - badgeSize.width * overlap
-        }
-
-        let y: CGFloat = switch configuration.position {
-        case .topLeft, .topCenter, .topRight:
-            thumbnail.minY - badgeSize.height * (1 - overlap)
-        case .bottomLeft, .bottomCenter, .bottomRight:
-            thumbnail.maxY - badgeSize.height * overlap
-        case .leftCenter, .rightCenter:
-            thumbnail.midY - badgeSize.height / 2
-        }
-        return CGPoint(
-            x: x + configuration.offsetX,
-            y: y + configuration.offsetY)
     }
 
     func hide() {

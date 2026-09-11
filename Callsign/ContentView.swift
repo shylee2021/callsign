@@ -8,99 +8,29 @@
 import AppKit
 import SwiftUI
 
-enum TagPosition: String, CaseIterable, Identifiable {
-    case topLeft, topCenter, topRight, leftCenter, rightCenter, bottomLeft, bottomCenter, bottomRight
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .topLeft: "Top Left"
-        case .topCenter: "Top Center"
-        case .topRight: "Top Right"
-        case .leftCenter: "Left Center"
-        case .rightCenter: "Right Center"
-        case .bottomLeft: "Bottom Left"
-        case .bottomCenter: "Bottom Center"
-        case .bottomRight: "Bottom Right"
-        }
-    }
-}
-
-enum TagLabel: String, CaseIterable, Identifiable {
-    case appName, windowTitle, iconOnly
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .appName: "App Name"
-        case .windowTitle: "Window Name"
-        case .iconOnly: "Icon Only"
-        }
-    }
-}
-
-struct TagConfiguration: Hashable {
-    var position: TagPosition
-    var label: TagLabel
-    var overlap: Double
-    var scale: Double
-    var appearDelay: Double
-    var disappearDelay: Double
-    var offsetX: Double
-    var offsetY: Double
-    var red: Double
-    var green: Double
-    var blue: Double
-    var alpha: Double
-    var textRed: Double
-    var textGreen: Double
-    var textBlue: Double
-    var textAlpha: Double
-
-    static let `default` = TagConfiguration(
-        position: .bottomCenter,
-        label: .appName,
-        overlap: 0.5,
-        scale: 1,
-        appearDelay: 0,
-        disappearDelay: 0,
-        offsetX: 0,
-        offsetY: 0,
-        red: 0.08,
-        green: 0.08,
-        blue: 0.09,
-        alpha: 0.85,
-        textRed: 1,
-        textGreen: 1,
-        textBlue: 1,
-        textAlpha: 1)
-}
-
 struct ContentView: View {
     @StateObject private var probe = MissionControlProbe()
-    @AppStorage("tag.position") private var tagPosition = TagPosition.bottomCenter.rawValue
-    @AppStorage("tag.label") private var tagLabel = TagLabel.appName.rawValue
-    @AppStorage("tag.overlap") private var tagOverlap = 0.5
-    @AppStorage("tag.scale") private var tagScale = 1.0
-    @AppStorage("tag.appearDelay") private var tagAppearDelay = 0.0
-    @AppStorage("tag.disappearDelay") private var tagDisappearDelay = 0.0
-    @AppStorage("tag.offsetX") private var tagOffsetX = 0.0
-    @AppStorage("tag.offsetY") private var tagOffsetY = 0.0
-    @AppStorage("tag.red") private var tagRed = 0.08
-    @AppStorage("tag.green") private var tagGreen = 0.08
-    @AppStorage("tag.blue") private var tagBlue = 0.09
-    @AppStorage("tag.alpha") private var tagAlpha = 0.85
-    @AppStorage("tag.textRed") private var tagTextRed = 1.0
-    @AppStorage("tag.textGreen") private var tagTextGreen = 1.0
-    @AppStorage("tag.textBlue") private var tagTextBlue = 1.0
-    @AppStorage("tag.textAlpha") private var tagTextAlpha = 1.0
+    @AppStorage("tag.position") private var tagPosition = TagConfiguration.default.position.rawValue
+    @AppStorage("tag.label") private var tagLabel = TagConfiguration.default.label.rawValue
+    @AppStorage("tag.overlap") private var tagOverlap = TagConfiguration.default.overlap
+    @AppStorage("tag.scale") private var tagScale = TagConfiguration.default.scale
+    @AppStorage("tag.appearDelay") private var tagAppearDelay = TagConfiguration.default.appearDelay
+    @AppStorage("tag.disappearDelay") private var tagDisappearDelay = TagConfiguration.default.disappearDelay
+    @AppStorage("tag.offsetX") private var tagOffsetX = TagConfiguration.default.offsetX
+    @AppStorage("tag.offsetY") private var tagOffsetY = TagConfiguration.default.offsetY
+    @AppStorage("tag.red") private var tagRed = TagConfiguration.default.red
+    @AppStorage("tag.green") private var tagGreen = TagConfiguration.default.green
+    @AppStorage("tag.blue") private var tagBlue = TagConfiguration.default.blue
+    @AppStorage("tag.alpha") private var tagAlpha = TagConfiguration.default.alpha
+    @AppStorage("tag.textRed") private var tagTextRed = TagConfiguration.default.textRed
+    @AppStorage("tag.textGreen") private var tagTextGreen = TagConfiguration.default.textGreen
+    @AppStorage("tag.textBlue") private var tagTextBlue = TagConfiguration.default.textBlue
+    @AppStorage("tag.textAlpha") private var tagTextAlpha = TagConfiguration.default.textAlpha
 
     private var configuration: TagConfiguration {
         TagConfiguration(
-            position: TagPosition(rawValue: tagPosition) ?? .bottomCenter,
-            label: TagLabel(rawValue: tagLabel) ?? .appName,
+            position: TagPosition(rawValue: tagPosition) ?? TagConfiguration.default.position,
+            label: TagLabel(rawValue: tagLabel) ?? TagConfiguration.default.label,
             overlap: tagOverlap,
             scale: tagScale,
             appearDelay: tagAppearDelay,
@@ -118,35 +48,27 @@ struct ContentView: View {
     }
 
     private var backgroundColor: Binding<Color> {
-        Binding(
-            get: {
-                Color(.sRGB, red: tagRed, green: tagGreen, blue: tagBlue, opacity: tagAlpha)
-            },
-            set: { newValue in
-                guard let color = NSColor(newValue).usingColorSpace(.deviceRGB) else { return }
-                tagRed = color.redComponent
-                tagGreen = color.greenComponent
-                tagBlue = color.blueComponent
-                tagAlpha = color.alphaComponent
-            })
+        colorBinding(red: $tagRed, green: $tagGreen, blue: $tagBlue, alpha: $tagAlpha)
     }
 
     private var textColor: Binding<Color> {
+        colorBinding(red: $tagTextRed, green: $tagTextGreen, blue: $tagTextBlue, alpha: $tagTextAlpha)
+    }
+
+    private func colorBinding(
+        red: Binding<Double>, green: Binding<Double>, blue: Binding<Double>, alpha: Binding<Double>
+    ) -> Binding<Color> {
         Binding(
             get: {
-                Color(
-                    .sRGB,
-                    red: tagTextRed,
-                    green: tagTextGreen,
-                    blue: tagTextBlue,
-                    opacity: tagTextAlpha)
+                Color(.sRGB, red: red.wrappedValue, green: green.wrappedValue,
+                      blue: blue.wrappedValue, opacity: alpha.wrappedValue)
             },
             set: { newValue in
                 guard let color = NSColor(newValue).usingColorSpace(.deviceRGB) else { return }
-                tagTextRed = color.redComponent
-                tagTextGreen = color.greenComponent
-                tagTextBlue = color.blueComponent
-                tagTextAlpha = color.alphaComponent
+                red.wrappedValue = color.redComponent
+                green.wrappedValue = color.greenComponent
+                blue.wrappedValue = color.blueComponent
+                alpha.wrappedValue = color.alphaComponent
             })
     }
 
