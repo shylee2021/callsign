@@ -36,7 +36,6 @@ struct TagConfigurationTests {
                 == CGPoint(x: 250, y: 480))
         #expect(TagConfiguration.default.scale == 1)
         #expect(TagConfiguration.default.appearDelay == 0)
-        #expect(TagConfiguration.default.disappearDelay == 0)
     }
 
     @Test func labelSelectionAndFallback() {

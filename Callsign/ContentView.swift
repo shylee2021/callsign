@@ -15,7 +15,6 @@ struct ContentView: View {
     @AppStorage("tag.overlap") private var tagOverlap = TagConfiguration.default.overlap
     @AppStorage("tag.scale") private var tagScale = TagConfiguration.default.scale
     @AppStorage("tag.appearDelay") private var tagAppearDelay = TagConfiguration.default.appearDelay
-    @AppStorage("tag.disappearDelay") private var tagDisappearDelay = TagConfiguration.default.disappearDelay
     @AppStorage("tag.offsetX") private var tagOffsetX = TagConfiguration.default.offsetX
     @AppStorage("tag.offsetY") private var tagOffsetY = TagConfiguration.default.offsetY
     @AppStorage("tag.red") private var tagRed = TagConfiguration.default.red
@@ -34,7 +33,6 @@ struct ContentView: View {
             overlap: tagOverlap,
             scale: tagScale,
             appearDelay: tagAppearDelay,
-            disappearDelay: tagDisappearDelay,
             offsetX: tagOffsetX,
             offsetY: tagOffsetY,
             red: tagRed,
@@ -128,15 +126,6 @@ struct ContentView: View {
                         HStack {
                             Slider(value: $tagAppearDelay, in: 0...0.5, step: 0.01)
                             Text("\(Int(tagAppearDelay * 1_000)) ms")
-                                .monospacedDigit()
-                                .frame(width: 58, alignment: .trailing)
-                        }
-                    }
-                    GridRow {
-                        Text("Disappear delay")
-                        HStack {
-                            Slider(value: $tagDisappearDelay, in: 0...0.5, step: 0.01)
-                            Text("\(Int(tagDisappearDelay * 1_000)) ms")
                                 .monospacedDigit()
                                 .frame(width: 58, alignment: .trailing)
                         }

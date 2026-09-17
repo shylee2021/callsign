@@ -52,7 +52,6 @@ struct TagConfiguration: Hashable {
     var overlap = 0.5
     var scale = 1.0
     var appearDelay = 0.0
-    var disappearDelay = 0.0
     var offsetX = 0.0
     var offsetY = 0.0
     var red = 0.08

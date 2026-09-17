@@ -7,69 +7,6 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class SceneProbe {
-    private let window: NSPanel
-    private var expectedFrame = CGRect.zero
-
-    init() {
-        window = NSPanel(
-            contentRect: .zero,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false)
-        window.isReleasedWhenClosed = false
-        window.sharingType = .none
-        window.backgroundColor = .clear
-        window.isOpaque = false
-        window.hasShadow = false
-        window.hidesOnDeactivate = false
-        window.ignoresMouseEvents = true
-        window.alphaValue = 0
-        window.level = .popUpMenu
-        window.collectionBehavior = [
-            .canJoinAllSpaces,
-            .fullScreenAuxiliary,
-            .stationary,
-            .ignoresCycle,
-        ]
-    }
-
-    func show() {
-        guard let screen = NSScreen.screens.first else { return }
-        expectedFrame = CGRect(x: 0, y: 0, width: screen.frame.width, height: screen.frame.height)
-        window.setFrame(expectedFrame, display: false)
-        window.orderFrontRegardless()
-    }
-
-    func hide() {
-        window.orderOut(nil)
-    }
-
-    func isAtRest() -> Bool? {
-        guard window.windowNumber > 0,
-              let entries = CGWindowListCopyWindowInfo(
-                .optionIncludingWindow,
-                CGWindowID(window.windowNumber)) as? [[String: Any]],
-              let bounds = entries.first?[kCGWindowBounds as String] as? [String: Any]
-        else { return nil }
-
-        let actual = CGRect(
-            x: number(bounds["X"]),
-            y: number(bounds["Y"]),
-            width: number(bounds["Width"]),
-            height: number(bounds["Height"]))
-        return abs(actual.minX - expectedFrame.minX) <= 5
-            && abs(actual.minY - expectedFrame.minY) <= 5
-            && abs(actual.width - expectedFrame.width) <= 5
-            && abs(actual.height - expectedFrame.height) <= 5
-    }
-
-    private func number(_ value: Any?) -> Double {
-        (value as? NSNumber)?.doubleValue ?? 0
-    }
-}
-
-@MainActor
 final class OverlayManager {
     private var panels: [BadgePanel] = []
 
@@ -92,10 +29,6 @@ final class OverlayManager {
         }
     }
 
-    func fadeOut(after delay: Double) {
-        panels.forEach { $0.fadeOut(after: delay) }
-    }
-
     func hide() {
         panels.forEach { $0.hide() }
     }
@@ -108,7 +41,6 @@ private final class BadgePanel {
     private var representedPID: pid_t = -1
     private var representedText: String?
     private var representedConfiguration: TagConfiguration?
-    private var fadeTask: Task<Void, Never>?
 
     init() {
         let placeholder = NSImage(
@@ -144,9 +76,6 @@ private final class BadgePanel {
         configuration: TagConfiguration,
         animated: Bool
     ) {
-        fadeTask?.cancel()
-        fadeTask = nil
-
         let text = configuration.label.text(appName: badge.appName, windowTitle: badge.windowTitle)
 
         if representedPID != badge.pid
@@ -195,27 +124,7 @@ private final class BadgePanel {
         }
     }
 
-    func fadeOut(after delay: Double) {
-        guard window.isVisible, window.alphaValue > 0 else { return }
-        fadeTask?.cancel()
-        fadeTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await Task.sleep(for: .milliseconds(Int(delay * 1_000)))
-            } catch { return }
-            guard !Task.isCancelled else { return }
-            await NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.08
-                self.window.animator().alphaValue = 0
-            }
-            guard !Task.isCancelled else { return }
-            self.window.orderOut(nil)
-        }
-    }
-
     func hide() {
-        fadeTask?.cancel()
-        fadeTask = nil
         window.orderOut(nil)
         window.alphaValue = 0
     }

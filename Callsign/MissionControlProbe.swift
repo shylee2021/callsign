@@ -18,6 +18,44 @@ struct Thumbnail {
     }
 }
 
+struct ThumbnailStability {
+    private var referenceFrames: [CGRect] = []
+    private var unchangedPolls: Int?
+    private(set) var didMove = false
+
+    mutating func invalidate() {
+        unchangedPolls = nil
+    }
+
+    mutating func update(frames: [CGRect], blocked: Bool) -> Bool {
+        // WindowServer may reorder windows when one is hovered; geometry order must stay consistent.
+        let frames = frames.sorted {
+            ($0.minX, $0.minY, $0.width, $0.height) < ($1.minX, $1.minY, $1.width, $1.height)
+        }
+        let moved = frames.count != referenceFrames.count || zip(frames, referenceFrames).contains {
+            abs($0.minX - $1.minX) > 1 || abs($0.minY - $1.minY) > 1
+                || abs($0.width - $1.width) > 1 || abs($0.height - $1.height) > 1
+        }
+        didMove = !referenceFrames.isEmpty && moved
+        if moved {
+            // Keep this reference until movement exceeds the tolerance, so slow drift accumulates.
+            referenceFrames = frames
+            unchangedPolls = nil
+        }
+        guard !frames.isEmpty, !blocked else {
+            unchangedPolls = nil
+            return false
+        }
+        guard let count = unchangedPolls else {
+            unchangedPolls = 0
+            return false
+        }
+        // ponytail: two quiet polls (~66 ms) estimate completion; increase if slow animations flash.
+        unchangedPolls = min(count + 1, 2)
+        return unchangedPolls == 2
+    }
+}
+
 struct WindowInfo {
     let pid: pid_t
     let owner: String
@@ -46,7 +84,7 @@ private struct AppIdentity {
 }
 
 private enum MissionControlPhase {
-    case normal, entering, active, exiting
+    case normal, entering, active, transitioning
 }
 
 // Dock accessibility (AX) detects Mission Control on both versions.
@@ -58,16 +96,23 @@ final class MissionControlProbe: ObservableObject {
     @Published private(set) var report = ""
 
     private let overlays = OverlayManager()
-    private let sceneProbe = SceneProbe()
+    private let inputMonitor = MissionControlInputMonitor()
     private var phase = MissionControlPhase.normal
-    private var stableProbeReads = 0
-    private var unreadableProbeReads = 0
-    private var sawSceneMovement = false
-    private var exitFadeStarted = false
+    private var stability = ThumbnailStability()
+    private var settleStartedAt = 0.0
+    private var settledMilliseconds: Int?
     private var readySince: TimeInterval?
     private var reportTask: Task<Void, Never>?
     private var lastBadgeSync = 0.0
     private var appCache: [pid_t: AppIdentity] = [:]
+
+    init() {
+        inputMonitor.onTransition = { [weak self] in
+            guard let self else { return }
+            self.stability.invalidate()
+            self.suspendBadges()
+        }
+    }
 
     func requestAccess() {
         let prompt = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
@@ -76,6 +121,7 @@ final class MissionControlProbe: ObservableObject {
     }
 
     func openMissionControl() {
+        inputMonitor.anticipateTransition()
         do {
             try Process.run(
                 URL(fileURLWithPath: "/usr/bin/open"),
@@ -96,10 +142,12 @@ final class MissionControlProbe: ObservableObject {
             isTrusted = trusted
         }
         guard trusted else {
+            inputMonitor.stop()
             resetMissionControl()
             status = "Accessibility access is required."
             return 500
         }
+        inputMonitor.start()
         guard let (missionControl, dockPID) = currentMissionControl() else {
             let wasRunning = phase != .normal
             if wasRunning {
@@ -114,58 +162,10 @@ final class MissionControlProbe: ObservableObject {
         if phase == .normal {
             resetMissionControl()
             phase = .entering
-            sceneProbe.show()
+            settleStartedAt = ProcessInfo.processInfo.systemUptime
             status = "Mission Control entering…"
-            return 33
         }
-
-        switch sceneProbe.isAtRest() {
-        case true:
-            unreadableProbeReads = 0
-            if phase != .active && trackpadGestureIsActive() {
-                stableProbeReads = 0
-                readySince = nil
-                return 33
-            }
-            stableProbeReads += 1
-        case false:
-            stableProbeReads = 0
-            unreadableProbeReads = 0
-            sawSceneMovement = true
-            readySince = nil
-            if phase == .active {
-                phase = .exiting
-                exitFadeStarted = false
-                status = "Mission Control transitioning…"
-            }
-            if phase == .exiting,
-               !exitFadeStarted,
-               !trackpadGestureIsActive() {
-                exitFadeStarted = true
-                overlays.fadeOut(after: configuration.disappearDelay)
-            }
-            return 33
-        case nil:
-            unreadableProbeReads += 1
-            guard unreadableProbeReads >= 30 else { return 33 }
-            // ponytail: fail open after one second if WindowServer stops listing the probe.
-            stableProbeReads = 3
-        }
-
-        let requiredStableReads = phase == .entering && !sawSceneMovement ? 3 : 1
-        guard stableProbeReads >= requiredStableReads else { return 33 }
-        let now = ProcessInfo.processInfo.systemUptime
-        if phase == .entering {
-            readySince = readySince ?? now
-            guard now - (readySince ?? now) >= configuration.appearDelay else { return 33 }
-        }
-        let shouldFadeIn = phase == .entering
-        phase = .active
-        exitFadeStarted = false
-        readySince = nil
-
-        guard shouldFadeIn || now - lastBadgeSync >= 0.1 else { return 33 }
-        lastBadgeSync = now
+        inputMonitor.missionControlIsOpen = true
 
         let windows = onScreenWindows()
         let thumbnails: [Thumbnail]
@@ -178,6 +178,36 @@ final class MissionControlProbe: ObservableObject {
             thumbnails = missionControlThumbnails(in: missionControl)
             source = "AX"
         }
+
+        let now = ProcessInfo.processInfo.systemUptime
+        let settled = stability.update(
+            frames: thumbnails.map(\.frame),
+            blocked: inputMonitor.interaction.blocksSettling(at: now))
+        if stability.didMove { inputMonitor.observedMotion() }
+        if !settled {
+            suspendBadges()
+            settledMilliseconds = nil
+            status = thumbnails.isEmpty
+                ? "Mission Control — waiting for thumbnail frames…"
+                : "Mission Control transitioning — tags hidden…"
+            return 33
+        }
+        if phase != .active {
+            if readySince == nil {
+                readySince = now
+                settledMilliseconds = Int((now - settleStartedAt) * 1_000)
+                status = "Mission Control settled — waiting for appear delay…"
+            }
+            guard now - (readySince ?? now) >= configuration.appearDelay else { return 33 }
+        }
+        let shouldFadeIn = phase != .active
+        phase = .active
+        readySince = nil
+
+        // Poll geometry every 33 ms, but refresh badge content and layout at most 10 Hz.
+        guard shouldFadeIn || now - lastBadgeSync >= 0.1 else { return 33 }
+        lastBadgeSync = now
+
         let badges = thumbnails.compactMap { thumbnail -> AppBadge? in
             guard let window = matchingWindow(for: thumbnail, in: windows) else { return nil }
             let identity = appIdentity(for: window)
@@ -194,17 +224,30 @@ final class MissionControlProbe: ObservableObject {
             configuration: configuration,
             animated: shouldFadeIn)
         status = "Mission Control active — labeled \(badges.count) of \(thumbnails.count) windows (\(source))."
+        if let elapsed = settledMilliseconds {
+            status += " Settled after ~\(elapsed) ms."
+        }
+        if !inputMonitor.isRunning {
+            status += " Input monitor unavailable; using window motion only."
+        }
 
         scheduleReport(for: missionControl, dockPID: dockPID, windows: windows)
         return 33
     }
 
-    private func trackpadGestureIsActive() -> Bool {
-        // ponytail: raw gesture type 29 is macOS-specific; replace if Apple exposes touch-state API.
-        guard let gesture = CGEventType(rawValue: 29) else { return false }
-        return CGEventSource.secondsSinceLastEventType(
-            .combinedSessionState,
-            eventType: gesture) < 0.05
+    private func suspendBadges() {
+        // Hiding must be immediate, including when an input arrives between geometry polls.
+        overlays.hide()
+        readySince = nil
+        lastBadgeSync = 0
+        if phase == .active {
+            phase = .transitioning
+            settleStartedAt = ProcessInfo.processInfo.systemUptime
+            settledMilliseconds = nil
+            reportTask?.cancel()
+            reportTask = nil
+            status = "Mission Control transitioning — tags hidden…"
+        }
     }
 
     private func currentMissionControl() -> (AXUIElement, pid_t)? {
@@ -221,15 +264,14 @@ final class MissionControlProbe: ObservableObject {
 
     private func resetMissionControl() {
         phase = .normal
-        stableProbeReads = 0
-        unreadableProbeReads = 0
-        sawSceneMovement = false
-        exitFadeStarted = false
+        inputMonitor.missionControlIsOpen = false
+        stability = ThumbnailStability()
+        settleStartedAt = 0
+        settledMilliseconds = nil
         readySince = nil
         reportTask?.cancel()
         reportTask = nil
         lastBadgeSync = 0
-        sceneProbe.hide()
         overlays.hide()
     }
 
@@ -281,7 +323,7 @@ final class MissionControlProbe: ObservableObject {
         dockPID: pid_t,
         windows: [WindowInfo]
     ) {
-        // Keep the completed task until reset: capture at most once per session.
+        // Keep the completed task until the next transition: one capture per settled layout.
         guard reportTask == nil else { return }
         reportTask = Task { @MainActor [weak self] in
             do {
@@ -301,7 +343,11 @@ final class MissionControlProbe: ObservableObject {
         var remaining = 500
         let tree = dumpTree(missionControl, depth: 0, remaining: &remaining)
             .joined(separator: "\n")
-        return "MISSION CONTROL AX TREE\n\(tree)\n\nON-SCREEN WINDOWS\n\(windowReport(dockPID: dockPID, windows: windows))"
+        let timing = settledMilliseconds.map { "~\($0) ms from transition detection to settled" } ?? "Not measured"
+        let monitoring = inputMonitor.isRunning
+            ? "Read-only input monitor active; Dock gesture events: \(inputMonitor.gestureEventCount)"
+            : "Input monitor unavailable. Check Privacy & Security > Input Monitoring for Callsign."
+        return "SETTLE TIMING\n\(timing) (2 unchanged polls, ~66 ms; 33 ms poll delay + API overhead; excludes appear delay)\n\(monitoring)\n\nMISSION CONTROL AX TREE\n\(tree)\n\nON-SCREEN WINDOWS\n\(windowReport(dockPID: dockPID, windows: windows))"
     }
 
     private func dumpTree(
