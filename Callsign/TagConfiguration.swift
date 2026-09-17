@@ -49,6 +49,7 @@ enum TagLabel: String, CaseIterable, Identifiable {
 struct TagConfiguration: Hashable {
     var position: TagPosition = .bottomCenter
     var label: TagLabel = .appName
+    // Fraction of the badge inside the chosen edge: 0 = outside, 1 = inside.
     var overlap = 0.5
     var scale = 1.0
     var appearDelay = 0.0

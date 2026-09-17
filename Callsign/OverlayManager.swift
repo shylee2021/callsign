@@ -15,6 +15,7 @@ final class OverlayManager {
         configuration: TagConfiguration,
         animated: Bool
     ) {
+        // Reuse panels across polls; spare panels stay hidden for the next capture.
         while panels.count < badges.count {
             panels.append(BadgePanel())
         }
@@ -97,6 +98,7 @@ private final class BadgePanel {
         hostingView.frame = NSRect(origin: .zero, size: size)
 
         let axOrigin = configuration.badgeOrigin(thumbnail: badge.thumbnailFrame, badgeSize: size)
+        // AX uses top-left coordinates; AppKit uses bottom-left. Flip around the primary display.
         let primaryScreenTop = NSScreen.screens.first?.frame.maxY ?? 0
         window.setFrame(NSRect(
             x: axOrigin.x,

@@ -190,6 +190,7 @@ struct ContentView: View {
         }
         .padding()
         .frame(minWidth: 720, minHeight: 780)
+        // Settings changes cancel this loop and restart it with the new configuration.
         .task(id: configuration) {
             while !Task.isCancelled {
                 let delay = probe.poll(configuration: configuration)

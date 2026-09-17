@@ -136,6 +136,7 @@ final class MissionControlProbe: ObservableObject {
         NSPasteboard.general.setString(report, forType: .string)
     }
 
+    // Returns the delay in milliseconds before the UI should poll again.
     func poll(configuration: TagConfiguration) -> Int {
         let trusted = AXIsProcessTrusted()
         if trusted != isTrusted {
@@ -256,6 +257,7 @@ final class MissionControlProbe: ObservableObject {
 
         let dockElement = AXUIElementCreateApplication(dock.processIdentifier)
         AXUIElementSetMessagingTimeout(dockElement, 0.2)
+        // Mission Control lives in the Dock's AX tree; these identifiers are macOS internals.
         guard let group = children(of: dockElement).first(where: {
             stringAttribute("AXIdentifier", of: $0) == "mc"
         }) else { return nil }
@@ -302,6 +304,8 @@ final class MissionControlProbe: ObservableObject {
     }
 
     private func matchingWindow(for thumbnail: Thumbnail, in windows: [WindowInfo]) -> WindowInfo? {
+        // Match by geometry rather than titles, which may be missing or duplicated.
+        // Layer 0 excludes floating UI such as our own badge panels.
         let candidates = windows.filter(\.canReceiveBadge)
         guard let nearest = candidates.min(by: {
             frameDistance($0.frame, thumbnail.frame) < frameDistance($1.frame, thumbnail.frame)
@@ -340,6 +344,7 @@ final class MissionControlProbe: ObservableObject {
         dockPID: pid_t,
         windows: [WindowInfo]
     ) -> String {
+        // Cap the diagnostic node budget because AX reads run on the main thread.
         var remaining = 500
         let tree = dumpTree(missionControl, depth: 0, remaining: &remaining)
             .joined(separator: "\n")
