@@ -6,15 +6,39 @@
 import ApplicationServices
 import AppKit
 import Combine
+import Darwin
 
 struct Thumbnail {
+    let windowID: CGWindowID?
     let title: String
     let frame: CGRect
 
-    static func fromWindowServer(_ windows: [WindowInfo]) -> [Thumbnail] {
+    static func fromWindowServer(
+        _ windows: [WindowInfo],
+        accessibilityTitles: [pid_t: [CGWindowID: String]]
+    ) -> [Thumbnail] {
         // ponytail: assumes WindowServer bounds track thumbnails; revisit if their layouts diverge.
         return windows.filter(\.canReceiveBadge)
-            .map { Thumbnail(title: $0.title, frame: $0.frame) }
+            .map { Thumbnail(
+                windowID: $0.id,
+                title: accessibilityTitles[$0.pid]?[$0.id] ?? "",
+                frame: $0.frame) }
+    }
+
+    func matchingWindow(in windows: [WindowInfo]) -> WindowInfo? {
+        let candidates = windows.filter(\.canReceiveBadge)
+        if let windowID {
+            return candidates.first { $0.id == windowID }
+        }
+
+        // Tahoe's Dock AX thumbnails have no window ID; retain geometry matching there.
+        func distance(_ rect: CGRect) -> CGFloat {
+            abs(rect.minX - frame.minX) + abs(rect.minY - frame.minY)
+                + abs(rect.width - frame.width) + abs(rect.height - frame.height)
+        }
+        guard let nearest = candidates.min(by: { distance($0.frame) < distance($1.frame) }) else { return nil }
+        // Hovering can shift each thumbnail edge by roughly 30 points.
+        return distance(nearest.frame) < 160 ? nearest : nil
     }
 }
 
@@ -57,6 +81,7 @@ struct ThumbnailStability {
 }
 
 struct WindowInfo {
+    let id: CGWindowID
     let pid: pid_t
     let owner: String
     let title: String
@@ -88,7 +113,7 @@ private enum MissionControlPhase {
 }
 
 // Dock accessibility (AX) detects Mission Control on both versions.
-// Thumbnail geometry comes from AX on macOS 26 and WindowServer on macOS 27+.
+// macOS 26 uses Dock AX thumbnails; macOS 27+ uses WindowServer frames and app AX titles.
 @MainActor
 final class MissionControlProbe: ObservableObject {
     @Published private(set) var isTrusted = AXIsProcessTrusted()
@@ -105,6 +130,9 @@ final class MissionControlProbe: ObservableObject {
     private var reportTask: Task<Void, Never>?
     private var lastBadgeSync = 0.0
     private var appCache: [pid_t: AppIdentity] = [:]
+    private var accessibilityTitles: [pid_t: [CGWindowID: String]] = [:]
+    private var titleTask: Task<Void, Never>?
+    private var lastTitleSync = -Double.infinity
 
     init() {
         inputMonitor.onTransition = { [weak self] in
@@ -173,7 +201,10 @@ final class MissionControlProbe: ObservableObject {
         let source: String
         if #available(macOS 27, *) {
             // macOS 27 can expose an empty AX group, so do not rely on its children.
-            thumbnails = Thumbnail.fromWindowServer(windows)
+            if configuration.label == .windowTitle {
+                refreshAccessibilityTitles(for: windows)
+            }
+            thumbnails = Thumbnail.fromWindowServer(windows, accessibilityTitles: accessibilityTitles)
             source = "WindowServer"
         } else {
             thumbnails = missionControlThumbnails(in: missionControl)
@@ -210,7 +241,7 @@ final class MissionControlProbe: ObservableObject {
         lastBadgeSync = now
 
         let badges = thumbnails.compactMap { thumbnail -> AppBadge? in
-            guard let window = matchingWindow(for: thumbnail, in: windows) else { return nil }
+            guard let window = thumbnail.matchingWindow(in: windows) else { return nil }
             let identity = appIdentity(for: window)
             return AppBadge(
                 pid: window.pid,
@@ -274,6 +305,10 @@ final class MissionControlProbe: ObservableObject {
         reportTask?.cancel()
         reportTask = nil
         lastBadgeSync = 0
+        titleTask?.cancel()
+        titleTask = nil
+        accessibilityTitles = [:]
+        lastTitleSync = -Double.infinity
         overlays.hide()
     }
 
@@ -298,28 +333,60 @@ final class MissionControlProbe: ObservableObject {
             .compactMap { element in
                 guard let frame = frame(of: element) else { return nil }
                 return Thumbnail(
+                    windowID: nil,
                     title: stringAttribute("AXTitle", of: element) ?? "",
                     frame: frame)
             }
     }
 
-    private func matchingWindow(for thumbnail: Thumbnail, in windows: [WindowInfo]) -> WindowInfo? {
-        // Match by geometry rather than titles, which may be missing or duplicated.
-        // Layer 0 excludes floating UI such as our own badge panels.
-        let candidates = windows.filter(\.canReceiveBadge)
-        guard let nearest = candidates.min(by: {
-            frameDistance($0.frame, thumbnail.frame) < frameDistance($1.frame, thumbnail.frame)
-        }) else { return nil }
+    private func refreshAccessibilityTitles(for windows: [WindowInfo]) {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard titleTask == nil, now - lastTitleSync >= 1 else { return }
+        lastTitleSync = now
+        let candidates = windows.filter { $0.canReceiveBadge && $0.pid > 0 }
+        let targets = Dictionary(grouping: candidates, by: \.pid).mapValues { Set($0.map(\.id)) }
+        guard !targets.isEmpty else {
+            accessibilityTitles = [:]
+            return
+        }
 
-        // Hovering a Mission Control thumbnail can shift each edge by roughly 30 points.
-        return frameDistance(nearest.frame, thumbnail.frame) < 160 ? nearest : nil
+        // Read remote AX titles off the main thread so a slow app cannot stall gesture hiding.
+        // Refresh once a second rather than doing AX IPC on every geometry poll.
+        titleTask = Task.detached(priority: .utility) { [weak self] in
+            let titles = Self.readAccessibilityTitles(for: targets)
+            await MainActor.run { [weak self] in
+                guard !Task.isCancelled, let self else { return }
+                self.accessibilityTitles = titles
+                self.titleTask = nil
+            }
+        }
     }
 
-    private func frameDistance(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
-        abs(lhs.minX - rhs.minX)
-            + abs(lhs.minY - rhs.minY)
-            + abs(lhs.width - rhs.width)
-            + abs(lhs.height - rhs.height)
+    private nonisolated static func readAccessibilityTitles(
+        for targets: [pid_t: Set<CGWindowID>]
+    ) -> [pid_t: [CGWindowID: String]] {
+        // This private bridge identifies AX windows even when Mission Control scales their frames.
+        typealias WindowIDFunction = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
+        guard let handle = dlopen(nil, RTLD_LAZY) else { return [:] }
+        defer { dlclose(handle) }
+        guard let symbol = dlsym(handle, "_AXUIElementGetWindow") else { return [:] }
+        let windowID = unsafeBitCast(symbol, to: WindowIDFunction.self)
+        var titles: [pid_t: [CGWindowID: String]] = [:]
+        for (pid, ids) in targets {
+            guard !Task.isCancelled else { break }
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(app, 0.05)
+            let windows = attribute("AXWindows", of: app) as? [AXUIElement] ?? []
+            for window in windows {
+                guard !Task.isCancelled else { break }
+                AXUIElementSetMessagingTimeout(window, 0.05)
+                var id: CGWindowID = 0
+                guard windowID(window, &id) == .success, ids.contains(id),
+                      let title = attribute("AXTitle", of: window) as? String, !title.isEmpty else { continue }
+                titles[pid, default: [:]][id] = title
+            }
+        }
+        return titles
     }
 
     private func scheduleReport(
@@ -393,14 +460,14 @@ final class MissionControlProbe: ObservableObject {
     }
 
     private func children(of element: AXUIElement) -> [AXUIElement] {
-        attribute("AXChildren", of: element) as? [AXUIElement] ?? []
+        Self.attribute("AXChildren", of: element) as? [AXUIElement] ?? []
     }
 
     private func stringAttribute(_ name: String, of element: AXUIElement) -> String? {
-        attribute(name, of: element) as? String
+        Self.attribute(name, of: element) as? String
     }
 
-    private func attribute(_ name: String, of element: AXUIElement) -> CFTypeRef? {
+    private nonisolated static func attribute(_ name: String, of element: AXUIElement) -> CFTypeRef? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else {
             return nil
@@ -410,8 +477,8 @@ final class MissionControlProbe: ObservableObject {
 
     private func frame(of element: AXUIElement) -> CGRect? {
         guard
-            let positionValue = attribute("AXPosition", of: element),
-            let sizeValue = attribute("AXSize", of: element),
+            let positionValue = Self.attribute("AXPosition", of: element),
+            let sizeValue = Self.attribute("AXSize", of: element),
             CFGetTypeID(positionValue) == AXValueGetTypeID(),
             CFGetTypeID(sizeValue) == AXValueGetTypeID()
         else { return nil }
@@ -437,8 +504,10 @@ final class MissionControlProbe: ObservableObject {
                 y: number(bounds["Y"]).doubleValue,
                 width: number(bounds["Width"]).doubleValue,
                 height: number(bounds["Height"]).doubleValue)
-            guard frame.width > 1, frame.height > 1 else { return nil }
+            let id = number(window[kCGWindowNumber as String]).uint32Value
+            guard id != kCGNullWindowID, frame.width > 1, frame.height > 1 else { return nil }
             return WindowInfo(
+                id: id,
                 pid: pid_t(number(window[kCGWindowOwnerPID as String]).int32Value),
                 owner: window[kCGWindowOwnerName as String] as? String ?? "?",
                 title: window[kCGWindowName as String] as? String ?? "",
