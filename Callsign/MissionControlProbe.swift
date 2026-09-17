@@ -7,18 +7,29 @@ import ApplicationServices
 import AppKit
 import Combine
 
-private struct Thumbnail {
+struct Thumbnail {
     let title: String
     let frame: CGRect
+
+    static func fromWindowServer(_ windows: [WindowInfo]) -> [Thumbnail] {
+        // ponytail: assumes WindowServer bounds track thumbnails; revisit if their layouts diverge.
+        return windows.filter(\.canReceiveBadge)
+            .map { Thumbnail(title: $0.title, frame: $0.frame) }
+    }
 }
 
-private struct WindowInfo {
+struct WindowInfo {
     let pid: pid_t
     let owner: String
     let title: String
     let frame: CGRect
     let layer: Int
     let alpha: Double
+
+    var canReceiveBadge: Bool {
+        // WindowManager's hover decoration is system UI, even when it appears on layer 0.
+        layer == 0 && alpha > 0.01 && owner != "WindowManager"
+    }
 }
 
 struct AppBadge {
@@ -38,6 +49,8 @@ private enum MissionControlPhase {
     case normal, entering, active, exiting
 }
 
+// Dock accessibility (AX) detects Mission Control on both versions.
+// Thumbnail geometry comes from AX on macOS 26 and WindowServer on macOS 27+.
 @MainActor
 final class MissionControlProbe: ObservableObject {
     @Published private(set) var isTrusted = AXIsProcessTrusted()
@@ -154,8 +167,17 @@ final class MissionControlProbe: ObservableObject {
         guard shouldFadeIn || now - lastBadgeSync >= 0.1 else { return 33 }
         lastBadgeSync = now
 
-        let thumbnails = missionControlThumbnails(in: missionControl)
         let windows = onScreenWindows()
+        let thumbnails: [Thumbnail]
+        let source: String
+        if #available(macOS 27, *) {
+            // macOS 27 can expose an empty AX group, so do not rely on its children.
+            thumbnails = Thumbnail.fromWindowServer(windows)
+            source = "WindowServer"
+        } else {
+            thumbnails = missionControlThumbnails(in: missionControl)
+            source = "AX"
+        }
         let badges = thumbnails.compactMap { thumbnail -> AppBadge? in
             guard let window = matchingWindow(for: thumbnail, in: windows) else { return nil }
             let identity = appIdentity(for: window)
@@ -171,7 +193,7 @@ final class MissionControlProbe: ObservableObject {
             badges,
             configuration: configuration,
             animated: shouldFadeIn)
-        status = "Mission Control active — labeled \(badges.count) of \(thumbnails.count) windows."
+        status = "Mission Control active — labeled \(badges.count) of \(thumbnails.count) windows (\(source))."
 
         scheduleReport(for: missionControl, dockPID: dockPID, windows: windows)
         return 33
@@ -238,7 +260,7 @@ final class MissionControlProbe: ObservableObject {
     }
 
     private func matchingWindow(for thumbnail: Thumbnail, in windows: [WindowInfo]) -> WindowInfo? {
-        let candidates = windows.filter { $0.layer == 0 && $0.alpha > 0.01 }
+        let candidates = windows.filter(\.canReceiveBadge)
         guard let nearest = candidates.min(by: {
             frameDistance($0.frame, thumbnail.frame) < frameDistance($1.frame, thumbnail.frame)
         }) else { return nil }
