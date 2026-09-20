@@ -15,13 +15,13 @@ struct Thumbnail {
 
     static func fromWindowServer(
         _ windows: [WindowInfo],
-        accessibilityTitles: [pid_t: [CGWindowID: String]]
+        windowTitles: [pid_t: [CGWindowID: String]]
     ) -> [Thumbnail] {
         // ponytail: assumes WindowServer bounds track thumbnails; revisit if their layouts diverge.
         return windows.filter(\.canReceiveBadge)
             .map { Thumbnail(
                 windowID: $0.id,
-                title: accessibilityTitles[$0.pid]?[$0.id] ?? "",
+                title: windowTitles[$0.pid]?[$0.id] ?? "",
                 frame: $0.frame) }
     }
 
@@ -94,7 +94,7 @@ struct WindowInfo {
         layer == 0 && alpha > 0.01 && owner != "WindowManager"
     }
 
-    func hasAccessibilityTitleResult(in titles: [pid_t: [CGWindowID: String]]) -> Bool {
+    func hasWindowTitleResult(in titles: [pid_t: [CGWindowID: String]]) -> Bool {
         // Missing means pending; an empty string means the lookup finished without a title.
         titles[pid]?[id] != nil
     }
@@ -136,7 +136,7 @@ final class MissionControlProbe: ObservableObject {
     private var reportTask: Task<Void, Never>?
     private var lastBadgeSync = 0.0
     private var appCache: [pid_t: AppIdentity] = [:]
-    private var accessibilityTitles: [pid_t: [CGWindowID: String]] = [:]
+    private var windowTitles: [pid_t: [CGWindowID: String]] = [:]
     private var titleTask: Task<Void, Never>?
     private var lastTitleSync = -Double.infinity
 
@@ -179,7 +179,7 @@ final class MissionControlProbe: ObservableObject {
         if !trusted || configuration.label != .windowTitle {
             titleTask?.cancel()
             titleTask = nil
-            accessibilityTitles = [:]
+            windowTitles = [:]
             lastTitleSync = -Double.infinity
         }
         guard trusted else {
@@ -196,7 +196,7 @@ final class MissionControlProbe: ObservableObject {
             }
             if #available(macOS 27, *), configuration.label == .windowTitle {
                 // Warm titles before entry; the refresh throttles WindowServer and AX reads to 1 Hz.
-                refreshAccessibilityTitles()
+                refreshWindowTitles()
             }
             status = wasRunning
                 ? "Mission Control closed — latest capture retained."
@@ -220,9 +220,9 @@ final class MissionControlProbe: ObservableObject {
         if #available(macOS 27, *) {
             // macOS 27 can expose an empty AX group, so do not rely on its children.
             if configuration.label == .windowTitle {
-                refreshAccessibilityTitles(for: windows)
+                refreshWindowTitles(for: windows)
             }
-            thumbnails = Thumbnail.fromWindowServer(windows, accessibilityTitles: accessibilityTitles)
+            thumbnails = Thumbnail.fromWindowServer(windows, windowTitles: windowTitles)
             source = "WindowServer"
         } else {
             thumbnails = missionControlThumbnails(in: missionControl)
@@ -261,7 +261,7 @@ final class MissionControlProbe: ObservableObject {
         let badges = thumbnails.compactMap { thumbnail -> AppBadge? in
             guard let window = thumbnail.matchingWindow(in: windows) else { return nil }
             if #available(macOS 27, *), configuration.label == .windowTitle,
-               !window.hasAccessibilityTitleResult(in: accessibilityTitles) {
+               !window.hasWindowTitleResult(in: windowTitles) {
                 return nil
             }
             let identity = appIdentity(for: window)
@@ -358,7 +358,7 @@ final class MissionControlProbe: ObservableObject {
             }
     }
 
-    private func refreshAccessibilityTitles(for windows: [WindowInfo]? = nil) {
+    private func refreshWindowTitles(for windows: [WindowInfo]? = nil) {
         guard titleTask == nil else { return }
         let now = ProcessInfo.processInfo.systemUptime
         // Outside Mission Control, do not enumerate windows on every polling tick.
@@ -366,28 +366,28 @@ final class MissionControlProbe: ObservableObject {
         let candidates = (windows ?? onScreenWindows()).filter { $0.canReceiveBadge && $0.pid > 0 }
         // Newly discovered windows need their first result without waiting for the refresh interval.
         guard now - lastTitleSync >= 1
-                || candidates.contains(where: { !$0.hasAccessibilityTitleResult(in: accessibilityTitles) })
+                || candidates.contains(where: { !$0.hasWindowTitleResult(in: windowTitles) })
         else { return }
         lastTitleSync = now
         var targets = Dictionary(grouping: candidates, by: \.pid).mapValues { Set($0.map(\.id)) }
-        accessibilityTitles = targets.reduce(into: [:]) { cache, target in
-            cache[target.key] = accessibilityTitles[target.key]?.filter { target.value.contains($0.key) }
+        windowTitles = targets.reduce(into: [:]) { cache, target in
+            cache[target.key] = windowTitles[target.key]?.filter { target.value.contains($0.key) }
         }
         if let localTitles = Self.readLocalWindowTitles(removingFrom: &targets) {
-            accessibilityTitles[ProcessInfo.processInfo.processIdentifier] = localTitles
+            windowTitles[ProcessInfo.processInfo.processIdentifier] = localTitles
         }
         guard !targets.isEmpty else { return }
 
         // Read off-main and publish each app independently, so a slow app cannot hold up the others.
         titleTask = Task.detached(priority: .utility) { [weak self] in
-            await withTaskGroup(of: [pid_t: [CGWindowID: String]].self) { group in
+            await withTaskGroup(of: (pid_t, [CGWindowID: String]).self) { group in
                 for (pid, ids) in targets {
-                    group.addTask { Self.readAccessibilityTitles(for: [pid: ids]) }
+                    group.addTask { (pid, Self.readAccessibilityTitles(for: pid, windowIDs: ids)) }
                 }
-                for await titles in group {
+                for await (pid, titles) in group {
                     await MainActor.run { [weak self] in
                         guard !Task.isCancelled, let self else { return }
-                        self.accessibilityTitles.merge(titles) { _, updated in updated }
+                        self.windowTitles[pid] = titles
                     }
                 }
             }
@@ -413,29 +413,27 @@ final class MissionControlProbe: ObservableObject {
     }
 
     private nonisolated static func readAccessibilityTitles(
-        for targets: [pid_t: Set<CGWindowID>]
-    ) -> [pid_t: [CGWindowID: String]] {
+        for pid: pid_t, windowIDs: Set<CGWindowID>
+    ) -> [CGWindowID: String] {
         // Record completed lookups even for untitled/inaccessible windows, allowing the app-name fallback.
-        var titles = targets.mapValues { ids in Dictionary(uniqueKeysWithValues: ids.map { ($0, "") }) }
+        var titles = Dictionary(uniqueKeysWithValues: windowIDs.map { ($0, "") })
         // This private bridge identifies AX windows even when Mission Control scales their frames.
         typealias WindowIDFunction = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
         guard let handle = dlopen(nil, RTLD_LAZY) else { return titles }
         defer { dlclose(handle) }
         guard let symbol = dlsym(handle, "_AXUIElementGetWindow") else { return titles }
         let windowID = unsafeBitCast(symbol, to: WindowIDFunction.self)
-        for (pid, ids) in targets {
+        guard !Task.isCancelled else { return titles }
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.05)
+        let windows = attribute("AXWindows", of: app) as? [AXUIElement] ?? []
+        for window in windows {
             guard !Task.isCancelled else { break }
-            let app = AXUIElementCreateApplication(pid)
-            AXUIElementSetMessagingTimeout(app, 0.05)
-            let windows = attribute("AXWindows", of: app) as? [AXUIElement] ?? []
-            for window in windows {
-                guard !Task.isCancelled else { break }
-                AXUIElementSetMessagingTimeout(window, 0.05)
-                var id: CGWindowID = 0
-                guard windowID(window, &id) == .success, ids.contains(id),
-                      let title = attribute("AXTitle", of: window) as? String, !title.isEmpty else { continue }
-                titles[pid, default: [:]][id] = title
-            }
+            AXUIElementSetMessagingTimeout(window, 0.05)
+            var id: CGWindowID = 0
+            guard windowID(window, &id) == .success, windowIDs.contains(id),
+                  let title = attribute("AXTitle", of: window) as? String, !title.isEmpty else { continue }
+            titles[id] = title
         }
         return titles
     }

@@ -14,12 +14,12 @@ struct WindowDiscoveryTests {
             WindowInfo(id: 104, pid: 4, owner: "WindowManager", title: "", frame: frame, layer: 0, alpha: 1),
         ]
         #expect(windows.filter(\.canReceiveBadge).map(\.pid) == [1])
-        let thumbnails = Thumbnail.fromWindowServer(windows, accessibilityTitles: [:])
+        let thumbnails = Thumbnail.fromWindowServer(windows, windowTitles: [:])
         #expect(thumbnails.count == 1)
         #expect(thumbnails.first?.windowID == 101)
         #expect(thumbnails.first?.frame == frame)
         #expect(thumbnails.first?.title == "")
-        #expect(Thumbnail.fromWindowServer([], accessibilityTitles: [:]).isEmpty)
+        #expect(Thumbnail.fromWindowServer([], windowTitles: [:]).isEmpty)
     }
 
     @Test func windowIDsKeepTitlesWithTheRightWindow() throws {
@@ -29,7 +29,7 @@ struct WindowDiscoveryTests {
             WindowInfo(id: 20, pid: 1, owner: "Editor", title: "", frame: frame, layer: 0, alpha: 1),
         ]
         let thumbnails = Thumbnail.fromWindowServer(
-            windows, accessibilityTitles: [1: [10: "First document", 20: "Second document"]])
+            windows, windowTitles: [1: [10: "First document", 20: "Second document"]])
         #expect(thumbnails.map(\.title) == ["First document", "Second document"])
         let thumbnail = try #require(thumbnails.last)
         let matched = try #require(thumbnail.matchingWindow(in: windows))
@@ -38,32 +38,32 @@ struct WindowDiscoveryTests {
         #expect(disappeared.matchingWindow(in: windows) == nil)
     }
 
-    @Test func windowServerThumbnailsUseOnlyAppAccessibilityTitles() {
+    @Test func windowServerThumbnailsUseOnlyResolvedTitles() {
         let window = WindowInfo(id: 10, pid: 1, owner: "Editor", title: "Server title", frame: .zero, layer: 0, alpha: 1)
         #expect(Thumbnail.fromWindowServer(
-            [window], accessibilityTitles: [1: [10: "App AX title"]]).first?.title == "App AX title")
-        #expect(Thumbnail.fromWindowServer([window], accessibilityTitles: [:]).first?.title == "")
+            [window], windowTitles: [1: [10: "App AX title"]]).first?.title == "App AX title")
+        #expect(Thumbnail.fromWindowServer([window], windowTitles: [:]).first?.title == "")
         #expect(Thumbnail.fromWindowServer(
-            [window], accessibilityTitles: [2: [10: "Wrong app"]]).first?.title == "")
+            [window], windowTitles: [2: [10: "Wrong app"]]).first?.title == "")
         #expect(Thumbnail.fromWindowServer(
-            [window], accessibilityTitles: [1: [20: "Wrong window"]]).first?.title == "")
+            [window], windowTitles: [1: [20: "Wrong window"]]).first?.title == "")
     }
 
     @Test func pendingWindowTitlesDoNotCountAsUntitledResults() throws {
         let window = WindowInfo(
             id: 10, pid: 1, owner: "Editor", title: "Ignored server title",
             frame: CGRect(x: 100, y: 200, width: 400, height: 300), layer: 0, alpha: 1)
-        #expect(!window.hasAccessibilityTitleResult(in: [:]))
-        #expect(!window.hasAccessibilityTitleResult(in: [1: [20: "Another window"]]))
-        #expect(!window.hasAccessibilityTitleResult(in: [2: [10: "Another app"]]))
+        #expect(!window.hasWindowTitleResult(in: [:]))
+        #expect(!window.hasWindowTitleResult(in: [1: [20: "Another window"]]))
+        #expect(!window.hasWindowTitleResult(in: [2: [10: "Another app"]]))
         // Pending titles must not remove frames from the geometry-settling calculation.
-        #expect(Thumbnail.fromWindowServer([window], accessibilityTitles: [:]).map(\.frame) == [window.frame])
+        #expect(Thumbnail.fromWindowServer([window], windowTitles: [:]).map(\.frame) == [window.frame])
 
         let untitled: [pid_t: [CGWindowID: String]] = [1: [10: ""]]
-        #expect(window.hasAccessibilityTitleResult(in: untitled))
-        let thumbnail = try #require(Thumbnail.fromWindowServer([window], accessibilityTitles: untitled).first)
+        #expect(window.hasWindowTitleResult(in: untitled))
+        let thumbnail = try #require(Thumbnail.fromWindowServer([window], windowTitles: untitled).first)
         #expect(TagLabel.windowTitle.text(appName: "Editor", windowTitle: thumbnail.title) == "Editor")
-        #expect(window.hasAccessibilityTitleResult(in: [1: [10: "Document"]]))
+        #expect(window.hasWindowTitleResult(in: [1: [10: "Document"]]))
     }
 
     @Test func ownWindowTitlesUseAppKitAndNeverEnterRemoteAXTargets() throws {
