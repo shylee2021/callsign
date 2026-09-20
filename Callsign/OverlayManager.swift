@@ -8,16 +8,23 @@ import SwiftUI
 
 @MainActor
 final class OverlayManager {
-    private var panels: [BadgePanel] = []
+    private(set) var panels: [BadgePanel] = []
+    private var liquidGlass = false
 
     func show(
         _ badges: [AppBadge],
         configuration: TagConfiguration,
         animated: Bool
     ) {
+        // Recreate only when changing window classes, so Glass-off uses unmodified AppKit behavior.
+        if liquidGlass != configuration.liquidGlass {
+            hide()
+            panels.removeAll()
+            liquidGlass = configuration.liquidGlass
+        }
         // Reuse panels across polls; spare panels stay hidden for the next capture.
         while panels.count < badges.count {
-            panels.append(BadgePanel())
+            panels.append(BadgePanel(liquidGlass: liquidGlass))
         }
         for (panel, badge) in zip(panels, badges) {
             panel.show(
@@ -36,26 +43,41 @@ final class OverlayManager {
 }
 
 @MainActor
-private final class BadgePanel {
-    private let window: NSPanel
+private final class GlassBadgeWindow: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+
+    // Keep native glass active without taking focus; never swizzle NSWindow globally.
+    // ponytail: private AppKit hook; replace when a public glass-active override is available.
+    @objc(_hasActiveAppearance)
+    nonisolated func glassHasActiveAppearance() -> Bool { true }
+}
+
+@MainActor
+final class BadgePanel {
+    let window: NSPanel
     private let hostingView: NSHostingView<BadgeView>
     private var representedPID: pid_t = -1
     private var representedText: String?
     private var representedConfiguration: TagConfiguration?
 
-    init() {
+    init(liquidGlass: Bool) {
         let placeholder = NSImage(
             systemSymbolName: "app.fill",
             accessibilityDescription: nil) ?? NSImage(size: NSSize(width: 32, height: 32))
         hostingView = NSHostingView(rootView: BadgeView(
             icon: placeholder,
             text: "App",
-            configuration: .default))
-        window = NSPanel(
-            contentRect: .zero,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false)
+            configuration: TagConfiguration(liquidGlass: liquidGlass)))
+        if liquidGlass {
+            window = GlassBadgeWindow(
+                contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                backing: .buffered, defer: false)
+        } else {
+            window = NSPanel(
+                contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                backing: .buffered, defer: false)
+        }
         window.contentView = hostingView
         window.backgroundColor = .clear
         window.isOpaque = false
@@ -132,14 +154,33 @@ private final class BadgePanel {
     }
 }
 
-private struct BadgeView: View {
+struct BadgeView: View {
     let icon: NSImage
     let text: String?
     let configuration: TagConfiguration
 
+    var glassMaterial: Glass {
+        configuration.liquidGlass ? .regular : .identity
+    }
+
+    var textColor: Color {
+        configuration.liquidGlass ? .primary : Color(
+            .sRGB,
+            red: configuration.textRed,
+            green: configuration.textGreen,
+            blue: configuration.textBlue,
+            opacity: configuration.textAlpha)
+    }
+
     var body: some View {
         let scale = configuration.scale
         let shape = RoundedRectangle(cornerRadius: 11 * scale)
+        let background = Color(
+            .sRGB,
+            red: configuration.red,
+            green: configuration.green,
+            blue: configuration.blue,
+            opacity: configuration.alpha)
 
         HStack(spacing: 7 * scale) {
             Image(nsImage: icon)
@@ -149,31 +190,22 @@ private struct BadgeView: View {
             if let text {
                 Text(text)
                     .font(.system(size: 13 * scale, weight: .semibold))
-                    .foregroundStyle(Color(
-                        .sRGB,
-                        red: configuration.textRed,
-                        green: configuration.textGreen,
-                        blue: configuration.textBlue,
-                        opacity: configuration.textAlpha))
+                    .foregroundStyle(textColor)
                     .lineLimit(1)
             }
         }
         .padding(.horizontal, 9 * scale)
         .padding(.vertical, 6 * scale)
         .background {
-            ZStack {
-                shape.fill(.regularMaterial)
-                shape.fill(Color(
-                    .sRGB,
-                    red: configuration.red,
-                    green: configuration.green,
-                    blue: configuration.blue,
-                    opacity: configuration.alpha))
+            if !configuration.liquidGlass {
+                ZStack {
+                    shape.fill(.regularMaterial)
+                    shape.fill(background)
+                    shape.stroke(.primary.opacity(0.18), lineWidth: 0.75)
+                }
             }
         }
-        .overlay {
-            shape.stroke(.primary.opacity(0.18), lineWidth: 0.75)
-        }
+        .glassEffect(glassMaterial, in: shape)
         .fixedSize()
     }
 }

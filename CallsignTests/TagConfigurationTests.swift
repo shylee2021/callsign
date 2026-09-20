@@ -1,4 +1,6 @@
+import AppKit
 import CoreGraphics
+import SwiftUI
 import Testing
 @testable import Callsign
 
@@ -36,6 +38,66 @@ struct TagConfigurationTests {
                 == CGPoint(x: 250, y: 480))
         #expect(TagConfiguration.default.scale == 1)
         #expect(TagConfiguration.default.appearDelay == 0)
+    }
+
+    @Test func liquidGlassIsOptInAndChangesConfiguration() {
+        let original = TagConfiguration.default
+        #expect(!original.liquidGlass)
+        var glass = original
+        glass.liquidGlass = true
+        // Both the polling task and badge refresh use configuration equality.
+        #expect(glass != original)
+        #expect(Set([original, glass]).count == 2)
+    }
+
+    @Test func liquidGlassUsesRegularMaterialAndSystemText() {
+        var configuration = TagConfiguration(
+            liquidGlass: true, red: 1, green: 1, blue: 1, alpha: 1,
+            textRed: 0, textGreen: 0, textBlue: 0, textAlpha: 0.5)
+        let icon = NSImage(size: NSSize(width: 32, height: 32))
+        let glass = BadgeView(icon: icon, text: "Window", configuration: configuration)
+        #expect(glass.glassMaterial == .regular)
+        #expect(glass.textColor == .primary)
+
+        configuration.liquidGlass = false
+        let custom = BadgeView(icon: icon, text: "Window", configuration: configuration)
+        #expect(custom.glassMaterial == .identity)
+        #expect(custom.textColor == Color(.sRGB, red: 0, green: 0, blue: 0, opacity: 0.5))
+    }
+
+    @Test func glassPanelAppearanceDoesNotTakeFocusOrChangeGlassOffPanels() throws {
+        let overlays = OverlayManager()
+        defer { overlays.hide() }
+        let badge = AppBadge(
+            pid: 1, appName: "Test", windowTitle: "Window",
+            icon: NSImage(size: NSSize(width: 32, height: 32)),
+            thumbnailFrame: CGRect(x: 100, y: 100, width: 400, height: 300))
+        var configuration = TagConfiguration.default
+
+        overlays.show([badge], configuration: configuration, animated: false)
+        let original = try #require(overlays.panels.first?.window)
+        #expect(type(of: original) == NSPanel.self)
+        // Fail explicitly if a future AppKit removes the private appearance query.
+        try #require(original.responds(to: NSSelectorFromString("_hasActiveAppearance")))
+
+        configuration.liquidGlass = true
+        overlays.show([badge], configuration: configuration, animated: false)
+        let glass = try #require(overlays.panels.first?.window)
+        #expect(glass !== original)
+        #expect(!original.isVisible)
+        #expect(glass.value(forKey: "_hasActiveAppearance") as? Bool == true)
+        #expect(!glass.canBecomeKey && !glass.canBecomeMain && !glass.isKeyWindow)
+        #expect(glass.ignoresMouseEvents && glass.styleMask.contains(.nonactivatingPanel))
+
+        overlays.show([badge], configuration: configuration, animated: false)
+        #expect(overlays.panels.first?.window === glass)
+
+        configuration.liquidGlass = false
+        overlays.show([badge], configuration: configuration, animated: false)
+        let restored = try #require(overlays.panels.first?.window)
+        #expect(restored !== glass)
+        #expect(type(of: restored) == NSPanel.self)
+        #expect(!glass.isVisible)
     }
 
     @Test func labelSelectionAndFallback() {

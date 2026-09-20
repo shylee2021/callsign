@@ -12,6 +12,7 @@ struct ContentView: View {
     @StateObject private var probe = MissionControlProbe()
     @AppStorage("tag.position") private var tagPosition = TagConfiguration.default.position.rawValue
     @AppStorage("tag.label") private var tagLabel = TagConfiguration.default.label.rawValue
+    @AppStorage("tag.liquidGlass") private var tagLiquidGlass = TagConfiguration.default.liquidGlass
     @AppStorage("tag.overlap") private var tagOverlap = TagConfiguration.default.overlap
     @AppStorage("tag.scale") private var tagScale = TagConfiguration.default.scale
     @AppStorage("tag.appearDelay") private var tagAppearDelay = TagConfiguration.default.appearDelay
@@ -30,6 +31,7 @@ struct ContentView: View {
         TagConfiguration(
             position: TagPosition(rawValue: tagPosition) ?? TagConfiguration.default.position,
             label: TagLabel(rawValue: tagLabel) ?? TagConfiguration.default.label,
+            liquidGlass: tagLiquidGlass,
             overlap: tagOverlap,
             scale: tagScale,
             appearDelay: tagAppearDelay,
@@ -150,11 +152,18 @@ struct ContentView: View {
                         }
                     }
                     GridRow {
+                        Text("Appearance")
+                        Toggle("Liquid Glass", isOn: $tagLiquidGlass)
+                            .toggleStyle(.checkbox)
+                            .help("Uses macOS appearance. Custom colors apply when Liquid Glass is off.")
+                    }
+                    GridRow {
                         Text("Colors")
                         HStack(spacing: 16) {
                             ColorPicker("Background", selection: backgroundColor, supportsOpacity: true)
                             ColorPicker("Text", selection: textColor, supportsOpacity: true)
                         }
+                        .disabled(tagLiquidGlass)
                     }
                 }
                 .padding(6)
