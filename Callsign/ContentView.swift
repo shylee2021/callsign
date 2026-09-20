@@ -192,6 +192,8 @@ struct ContentView: View {
         .frame(minWidth: 720, minHeight: 780)
         // Settings changes cancel this loop and restart it with the new configuration.
         .task(id: configuration) {
+            // Previews must not install global input monitors or draw desktop overlays.
+            guard ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] != "1" else { return }
             while !Task.isCancelled {
                 let delay = probe.poll(configuration: configuration)
                 try? await Task.sleep(for: .milliseconds(delay))
