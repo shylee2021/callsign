@@ -93,6 +93,11 @@ struct WindowInfo {
         // WindowManager's hover decoration is system UI, even when it appears on layer 0.
         layer == 0 && alpha > 0.01 && owner != "WindowManager"
     }
+
+    func hasAccessibilityTitleResult(in titles: [pid_t: [CGWindowID: String]]) -> Bool {
+        // Missing means pending; an empty string means the lookup finished without a title.
+        titles[pid]?[id] != nil
+    }
 }
 
 struct AppBadge {
@@ -113,7 +118,8 @@ private enum MissionControlPhase {
 }
 
 // Dock accessibility (AX) detects Mission Control on both versions.
-// macOS 26 uses Dock AX thumbnails; macOS 27+ uses WindowServer frames and app AX titles.
+// macOS 26 uses Dock AX thumbnails; macOS 27+ uses WindowServer frames.
+// On macOS 27, remote titles come from AX; our own titles come directly from AppKit.
 @MainActor
 final class MissionControlProbe: ObservableObject {
     @Published private(set) var isTrusted = AXIsProcessTrusted()
@@ -170,6 +176,12 @@ final class MissionControlProbe: ObservableObject {
         if trusted != isTrusted {
             isTrusted = trusted
         }
+        if !trusted || configuration.label != .windowTitle {
+            titleTask?.cancel()
+            titleTask = nil
+            accessibilityTitles = [:]
+            lastTitleSync = -Double.infinity
+        }
         guard trusted else {
             inputMonitor.stop()
             resetMissionControl()
@@ -182,6 +194,10 @@ final class MissionControlProbe: ObservableObject {
             if wasRunning {
                 resetMissionControl()
             }
+            if #available(macOS 27, *), configuration.label == .windowTitle {
+                // Warm titles before entry; the refresh throttles WindowServer and AX reads to 1 Hz.
+                refreshAccessibilityTitles()
+            }
             status = wasRunning
                 ? "Mission Control closed — latest capture retained."
                 : "Ready — open Mission Control."
@@ -190,6 +206,8 @@ final class MissionControlProbe: ObservableObject {
 
         if phase == .normal {
             resetMissionControl()
+            // Refresh renamed windows during entry without discarding already-known titles.
+            lastTitleSync = -Double.infinity
             phase = .entering
             settleStartedAt = ProcessInfo.processInfo.systemUptime
             status = "Mission Control entering…"
@@ -242,6 +260,10 @@ final class MissionControlProbe: ObservableObject {
 
         let badges = thumbnails.compactMap { thumbnail -> AppBadge? in
             guard let window = thumbnail.matchingWindow(in: windows) else { return nil }
+            if #available(macOS 27, *), configuration.label == .windowTitle,
+               !window.hasAccessibilityTitleResult(in: accessibilityTitles) {
+                return nil
+            }
             let identity = appIdentity(for: window)
             return AppBadge(
                 pid: window.pid,
@@ -305,10 +327,7 @@ final class MissionControlProbe: ObservableObject {
         reportTask?.cancel()
         reportTask = nil
         lastBadgeSync = 0
-        titleTask?.cancel()
-        titleTask = nil
-        accessibilityTitles = [:]
-        lastTitleSync = -Double.infinity
+        // Title fetching outlives Mission Control transitions, so entry can reuse warm results.
         overlays.hide()
     }
 
@@ -339,39 +358,71 @@ final class MissionControlProbe: ObservableObject {
             }
     }
 
-    private func refreshAccessibilityTitles(for windows: [WindowInfo]) {
+    private func refreshAccessibilityTitles(for windows: [WindowInfo]? = nil) {
+        guard titleTask == nil else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        guard titleTask == nil, now - lastTitleSync >= 1 else { return }
+        // Outside Mission Control, do not enumerate windows on every polling tick.
+        if windows == nil, now - lastTitleSync < 1 { return }
+        let candidates = (windows ?? onScreenWindows()).filter { $0.canReceiveBadge && $0.pid > 0 }
+        // Newly discovered windows need their first result without waiting for the refresh interval.
+        guard now - lastTitleSync >= 1
+                || candidates.contains(where: { !$0.hasAccessibilityTitleResult(in: accessibilityTitles) })
+        else { return }
         lastTitleSync = now
-        let candidates = windows.filter { $0.canReceiveBadge && $0.pid > 0 }
-        let targets = Dictionary(grouping: candidates, by: \.pid).mapValues { Set($0.map(\.id)) }
-        guard !targets.isEmpty else {
-            accessibilityTitles = [:]
-            return
+        var targets = Dictionary(grouping: candidates, by: \.pid).mapValues { Set($0.map(\.id)) }
+        accessibilityTitles = targets.reduce(into: [:]) { cache, target in
+            cache[target.key] = accessibilityTitles[target.key]?.filter { target.value.contains($0.key) }
         }
+        if let localTitles = Self.readLocalWindowTitles(removingFrom: &targets) {
+            accessibilityTitles[ProcessInfo.processInfo.processIdentifier] = localTitles
+        }
+        guard !targets.isEmpty else { return }
 
-        // Read remote AX titles off the main thread so a slow app cannot stall gesture hiding.
-        // Refresh once a second rather than doing AX IPC on every geometry poll.
+        // Read off-main and publish each app independently, so a slow app cannot hold up the others.
         titleTask = Task.detached(priority: .utility) { [weak self] in
-            let titles = Self.readAccessibilityTitles(for: targets)
+            await withTaskGroup(of: [pid_t: [CGWindowID: String]].self) { group in
+                for (pid, ids) in targets {
+                    group.addTask { Self.readAccessibilityTitles(for: [pid: ids]) }
+                }
+                for await titles in group {
+                    await MainActor.run { [weak self] in
+                        guard !Task.isCancelled, let self else { return }
+                        self.accessibilityTitles.merge(titles) { _, updated in updated }
+                    }
+                }
+            }
             await MainActor.run { [weak self] in
                 guard !Task.isCancelled, let self else { return }
-                self.accessibilityTitles = titles
                 self.titleTask = nil
             }
         }
     }
 
+    static func readLocalWindowTitles(
+        removingFrom targets: inout [pid_t: Set<CGWindowID>]
+    ) -> [CGWindowID: String]? {
+        let pid = ProcessInfo.processInfo.processIdentifier
+        guard let ids = targets.removeValue(forKey: pid) else { return nil }
+        // Keep our AppKit access on the main actor and our PID out of background AX requests.
+        var titles = Dictionary(uniqueKeysWithValues: ids.map { ($0, "") })
+        for window in NSApplication.shared.windows {
+            guard let id = CGWindowID(exactly: window.windowNumber), ids.contains(id) else { continue }
+            titles[id] = window.title
+        }
+        return titles
+    }
+
     private nonisolated static func readAccessibilityTitles(
         for targets: [pid_t: Set<CGWindowID>]
     ) -> [pid_t: [CGWindowID: String]] {
+        // Record completed lookups even for untitled/inaccessible windows, allowing the app-name fallback.
+        var titles = targets.mapValues { ids in Dictionary(uniqueKeysWithValues: ids.map { ($0, "") }) }
         // This private bridge identifies AX windows even when Mission Control scales their frames.
         typealias WindowIDFunction = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
-        guard let handle = dlopen(nil, RTLD_LAZY) else { return [:] }
+        guard let handle = dlopen(nil, RTLD_LAZY) else { return titles }
         defer { dlclose(handle) }
-        guard let symbol = dlsym(handle, "_AXUIElementGetWindow") else { return [:] }
+        guard let symbol = dlsym(handle, "_AXUIElementGetWindow") else { return titles }
         let windowID = unsafeBitCast(symbol, to: WindowIDFunction.self)
-        var titles: [pid_t: [CGWindowID: String]] = [:]
         for (pid, ids) in targets {
             guard !Task.isCancelled else { break }
             let app = AXUIElementCreateApplication(pid)

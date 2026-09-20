@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Testing
 @testable import Callsign
@@ -46,6 +47,46 @@ struct WindowDiscoveryTests {
             [window], accessibilityTitles: [2: [10: "Wrong app"]]).first?.title == "")
         #expect(Thumbnail.fromWindowServer(
             [window], accessibilityTitles: [1: [20: "Wrong window"]]).first?.title == "")
+    }
+
+    @Test func pendingWindowTitlesDoNotCountAsUntitledResults() throws {
+        let window = WindowInfo(
+            id: 10, pid: 1, owner: "Editor", title: "Ignored server title",
+            frame: CGRect(x: 100, y: 200, width: 400, height: 300), layer: 0, alpha: 1)
+        #expect(!window.hasAccessibilityTitleResult(in: [:]))
+        #expect(!window.hasAccessibilityTitleResult(in: [1: [20: "Another window"]]))
+        #expect(!window.hasAccessibilityTitleResult(in: [2: [10: "Another app"]]))
+        // Pending titles must not remove frames from the geometry-settling calculation.
+        #expect(Thumbnail.fromWindowServer([window], accessibilityTitles: [:]).map(\.frame) == [window.frame])
+
+        let untitled: [pid_t: [CGWindowID: String]] = [1: [10: ""]]
+        #expect(window.hasAccessibilityTitleResult(in: untitled))
+        let thumbnail = try #require(Thumbnail.fromWindowServer([window], accessibilityTitles: untitled).first)
+        #expect(TagLabel.windowTitle.text(appName: "Editor", windowTitle: thumbnail.title) == "Editor")
+        #expect(window.hasAccessibilityTitleResult(in: [1: [10: "Document"]]))
+    }
+
+    @Test func ownWindowTitlesUseAppKitAndNeverEnterRemoteAXTargets() throws {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.title = "Local document"
+        let id = try #require(CGWindowID(exactly: window.windowNumber))
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let missingID = CGWindowID.max
+        var targets: [pid_t: Set<CGWindowID>] = [pid: [id, missingID], 1: [42]]
+
+        let titles = try #require(MissionControlProbe.readLocalWindowTitles(removingFrom: &targets))
+        #expect(titles == [id: "Local document", missingID: ""])
+        #expect(targets == [1: [42]])
+        #expect(MissionControlProbe.readLocalWindowTitles(removingFrom: &targets) == nil)
+
+        window.title = "Renamed document"
+        targets[pid] = [id]
+        #expect(MissionControlProbe.readLocalWindowTitles(removingFrom: &targets)?[id] == "Renamed document")
+        #expect(targets == [1: [42]])
     }
 
     @Test func dockThumbnailsStillMatchByGeometry() {
