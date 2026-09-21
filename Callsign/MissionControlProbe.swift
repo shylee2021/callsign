@@ -125,6 +125,12 @@ final class MissionControlProbe: ObservableObject {
     @Published private(set) var isTrusted = AXIsProcessTrusted()
     @Published private(set) var status = "Accessibility access is required."
     @Published private(set) var report = ""
+    // Session-only: never save diagnostic recording in preferences.
+    @Published var recordDiagnostics = false {
+        didSet {
+            if !recordDiagnostics { cancelReport() }
+        }
+    }
 
     private let overlays = OverlayManager()
     private let inputMonitor = MissionControlInputMonitor()
@@ -132,7 +138,6 @@ final class MissionControlProbe: ObservableObject {
     private var stability = ThumbnailStability()
     private var settleStartedAt = 0.0
     private var settledMilliseconds: Int?
-    private var readySince: TimeInterval?
     private var reportTask: Task<Void, Never>?
     private var lastBadgeSync = 0.0
     private var appCache: [pid_t: AppIdentity] = [:]
@@ -154,33 +159,33 @@ final class MissionControlProbe: ObservableObject {
         status = "Enable Callsign in System Settings, then return here."
     }
 
-    func openMissionControl() {
-        inputMonitor.anticipateTransition()
-        do {
-            try Process.run(
-                URL(fileURLWithPath: "/usr/bin/open"),
-                arguments: ["-b", "com.apple.exposelauncher"])
-        } catch {
-            status = "Could not open Mission Control: \(error.localizedDescription)"
-        }
-    }
-
     func copyReport() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(report, forType: .string)
     }
 
-    // Returns the delay in milliseconds before the UI should poll again.
+    func stop() {
+        inputMonitor.stop()
+        clearWindowTitles()
+        resetMissionControl()
+        status = "Callsign is paused."
+    }
+
+    private func clearWindowTitles() {
+        titleTask?.cancel()
+        titleTask = nil
+        windowTitles = [:]
+        lastTitleSync = -Double.infinity
+    }
+
+    // Returns the delay in milliseconds before the app should poll again.
     func poll(configuration: TagConfiguration) -> Int {
         let trusted = AXIsProcessTrusted()
         if trusted != isTrusted {
             isTrusted = trusted
         }
         if !trusted || configuration.label != .windowTitle {
-            titleTask?.cancel()
-            titleTask = nil
-            windowTitles = [:]
-            lastTitleSync = -Double.infinity
+            clearWindowTitles()
         }
         guard trusted else {
             inputMonitor.stop()
@@ -199,7 +204,7 @@ final class MissionControlProbe: ObservableObject {
                 refreshWindowTitles()
             }
             status = wasRunning
-                ? "Mission Control closed — latest capture retained."
+                ? "Mission Control closed."
                 : "Ready — open Mission Control."
             return 33
         }
@@ -242,17 +247,11 @@ final class MissionControlProbe: ObservableObject {
                 : "Mission Control transitioning — tags hidden…"
             return 33
         }
-        if phase != .active {
-            if readySince == nil {
-                readySince = now
-                settledMilliseconds = Int((now - settleStartedAt) * 1_000)
-                status = "Mission Control settled — waiting for appear delay…"
-            }
-            guard now - (readySince ?? now) >= configuration.appearDelay else { return 33 }
-        }
         let shouldFadeIn = phase != .active
+        if shouldFadeIn {
+            settledMilliseconds = Int((now - settleStartedAt) * 1_000)
+        }
         phase = .active
-        readySince = nil
 
         // Poll geometry every 33 ms, but refresh badge content and layout at most 10 Hz.
         guard shouldFadeIn || now - lastBadgeSync >= 0.1 else { return 33 }
@@ -285,21 +284,21 @@ final class MissionControlProbe: ObservableObject {
             status += " Input monitor unavailable; using window motion only."
         }
 
-        scheduleReport(for: missionControl, dockPID: dockPID, windows: windows)
+        scheduleReport { [weak self] in
+            self?.makeReport(for: missionControl, dockPID: dockPID, windows: windows) ?? ""
+        }
         return 33
     }
 
     private func suspendBadges() {
         // Hiding must be immediate, including when an input arrives between geometry polls.
         overlays.hide()
-        readySince = nil
         lastBadgeSync = 0
         if phase == .active {
             phase = .transitioning
             settleStartedAt = ProcessInfo.processInfo.systemUptime
             settledMilliseconds = nil
-            reportTask?.cancel()
-            reportTask = nil
+            cancelReport()
             status = "Mission Control transitioning — tags hidden…"
         }
     }
@@ -323,9 +322,7 @@ final class MissionControlProbe: ObservableObject {
         stability = ThumbnailStability()
         settleStartedAt = 0
         settledMilliseconds = nil
-        readySince = nil
-        reportTask?.cancel()
-        reportTask = nil
+        cancelReport()
         lastBadgeSync = 0
         // Title fetching outlives Mission Control transitions, so entry can reuse warm results.
         overlays.hide()
@@ -438,21 +435,29 @@ final class MissionControlProbe: ObservableObject {
         return titles
     }
 
-    private func scheduleReport(
-        for missionControl: AXUIElement,
-        dockPID: pid_t,
-        windows: [WindowInfo]
-    ) {
+    private func cancelReport() {
+        reportTask?.cancel()
+        reportTask = nil
+        // Keep the last report in memory so recording can be stopped before reviewing/copying it.
+    }
+
+    @discardableResult
+    func scheduleReport(_ capture: @escaping @MainActor () -> String) -> Task<Void, Never>? {
+        guard recordDiagnostics else { return nil }
+        // Poll schedules only after settling; transitions and pause cancel pending captures.
         // Keep the completed task until the next transition: one capture per settled layout.
-        guard reportTask == nil else { return }
-        reportTask = Task { @MainActor [weak self] in
+        if let reportTask { return reportTask }
+        let task = Task { @MainActor [weak self] in
             do {
                 try await Task.sleep(for: .milliseconds(250))
             } catch { return }
-            guard let self, self.phase == .active else { return }
-            let payload = self.makeReport(for: missionControl, dockPID: dockPID, windows: windows)
+            guard let self, self.recordDiagnostics, !Task.isCancelled else { return }
+            let payload = capture()
+            guard self.recordDiagnostics, !Task.isCancelled else { return }
             self.report = "Captured \(Date().formatted(date: .omitted, time: .standard))\n\n\(payload)"
         }
+        reportTask = task
+        return task
     }
 
     private func makeReport(
@@ -468,7 +473,7 @@ final class MissionControlProbe: ObservableObject {
         let monitoring = inputMonitor.isRunning
             ? "Read-only input monitor active; Dock gesture events: \(inputMonitor.gestureEventCount)"
             : "Input monitor unavailable. Check Privacy & Security > Input Monitoring for Callsign."
-        return "SETTLE TIMING\n\(timing) (2 unchanged polls, ~66 ms; 33 ms poll delay + API overhead; excludes appear delay)\n\(monitoring)\n\nMISSION CONTROL AX TREE\n\(tree)\n\nON-SCREEN WINDOWS\n\(windowReport(dockPID: dockPID, windows: windows))"
+        return "SETTLE TIMING\n\(timing) (2 unchanged polls, ~66 ms; 33 ms poll delay + API overhead)\n\(monitoring)\n\nMISSION CONTROL AX TREE\n\(tree)\n\nON-SCREEN WINDOWS\n\(windowReport(dockPID: dockPID, windows: windows))"
     }
 
     private func dumpTree(

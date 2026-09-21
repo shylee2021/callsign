@@ -17,32 +17,32 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		CA1151900000000000000001 /* CallsignTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = CallsignTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5FD95D56303C9AB200AA7C58 /* Callsign.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Callsign.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CA1151900000000000000001 /* CallsignTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = CallsignTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		CA1151900000000000000002 /* CallsignTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = CallsignTests;
-			sourceTree = "<group>";
-		};
 		5FD95D58303C9AB200AA7C58 /* Callsign */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Callsign;
 			sourceTree = "<group>";
 		};
+		CA1151900000000000000002 /* CallsignTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CallsignTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		CA1151900000000000000004 /* Frameworks */ = {
+		5FD95D53303C9AB200AA7C58 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		5FD95D53303C9AB200AA7C58 /* Frameworks */ = {
+		CA1151900000000000000004 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -73,6 +73,28 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		5FD95D55303C9AB200AA7C58 /* Callsign */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5FD95D61303C9AB300AA7C58 /* Build configuration list for PBXNativeTarget "Callsign" */;
+			buildPhases = (
+				5FD95D52303C9AB200AA7C58 /* Sources */,
+				5FD95D53303C9AB200AA7C58 /* Frameworks */,
+				5FD95D54303C9AB200AA7C58 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				5FD95D58303C9AB200AA7C58 /* Callsign */,
+			);
+			name = Callsign;
+			packageProductDependencies = (
+			);
+			productName = Callsign;
+			productReference = 5FD95D56303C9AB200AA7C58 /* Callsign.app */;
+			productType = "com.apple.product-type.application";
+		};
 		CA1151900000000000000006 /* CallsignTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = CA1151900000000000000007 /* Build configuration list for PBXNativeTarget "CallsignTests" */;
@@ -96,28 +118,6 @@
 			productReference = CA1151900000000000000001 /* CallsignTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		5FD95D55303C9AB200AA7C58 /* Callsign */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 5FD95D61303C9AB300AA7C58 /* Build configuration list for PBXNativeTarget "Callsign" */;
-			buildPhases = (
-				5FD95D52303C9AB200AA7C58 /* Sources */,
-				5FD95D53303C9AB200AA7C58 /* Frameworks */,
-				5FD95D54303C9AB200AA7C58 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				5FD95D58303C9AB200AA7C58 /* Callsign */,
-			);
-			name = Callsign;
-			packageProductDependencies = (
-			);
-			productName = Callsign;
-			productReference = 5FD95D56303C9AB200AA7C58 /* Callsign.app */;
-			productType = "com.apple.product-type.application";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -128,12 +128,12 @@
 				LastSwiftUpdateCheck = 2660;
 				LastUpgradeCheck = 2660;
 				TargetAttributes = {
+					5FD95D55303C9AB200AA7C58 = {
+						CreatedOnToolsVersion = 26.6;
+					};
 					CA1151900000000000000006 = {
 						CreatedOnToolsVersion = 27.0;
 						TestTargetID = 5FD95D55303C9AB200AA7C58;
-					};
-					5FD95D55303C9AB200AA7C58 = {
-						CreatedOnToolsVersion = 26.6;
 					};
 				};
 			};
@@ -158,14 +158,14 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		CA1151900000000000000005 /* Resources */ = {
+		5FD95D54303C9AB200AA7C58 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		5FD95D54303C9AB200AA7C58 /* Resources */ = {
+		CA1151900000000000000005 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -175,14 +175,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		CA1151900000000000000003 /* Sources */ = {
+		5FD95D52303C9AB200AA7C58 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		5FD95D52303C9AB200AA7C58 /* Sources */ = {
+		CA1151900000000000000003 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -200,48 +200,6 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		CA1151900000000000000008 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = LM52C62X46;
-				GENERATE_INFOPLIST_FILE = YES;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@loader_path/../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.shylee.CallsignTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Callsign.app/Contents/MacOS/Callsign";
-			};
-			name = Debug;
-		};
-		CA1151900000000000000009 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				BUNDLE_LOADER = "$(TEST_HOST)";
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = LM52C62X46;
-				GENERATE_INFOPLIST_FILE = YES;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-					"@loader_path/../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.shylee.CallsignTests;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Callsign.app/Contents/MacOS/Callsign";
-			};
-			name = Release;
-		};
 		5FD95D5F303C9AB300AA7C58 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -374,6 +332,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -406,6 +365,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -424,18 +384,51 @@
 			};
 			name = Release;
 		};
+		CA1151900000000000000008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = LM52C62X46;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.shylee.CallsignTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Callsign.app/Contents/MacOS/Callsign";
+			};
+			name = Debug;
+		};
+		CA1151900000000000000009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = LM52C62X46;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.shylee.CallsignTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Callsign.app/Contents/MacOS/Callsign";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		CA1151900000000000000007 /* Build configuration list for PBXNativeTarget "CallsignTests" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				CA1151900000000000000008 /* Debug */,
-				CA1151900000000000000009 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		5FD95D51303C9AB200AA7C58 /* Build configuration list for PBXProject "Callsign" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -450,6 +443,15 @@
 			buildConfigurations = (
 				5FD95D62303C9AB300AA7C58 /* Debug */,
 				5FD95D63303C9AB300AA7C58 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CA1151900000000000000007 /* Build configuration list for PBXNativeTarget "CallsignTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CA1151900000000000000008 /* Debug */,
+				CA1151900000000000000009 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

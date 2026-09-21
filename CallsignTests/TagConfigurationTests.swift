@@ -37,7 +37,6 @@ struct TagConfigurationTests {
         #expect(TagConfiguration.default.badgeOrigin(thumbnail: thumbnail, badgeSize: badgeSize)
                 == CGPoint(x: 250, y: 480))
         #expect(TagConfiguration.default.scale == 1)
-        #expect(TagConfiguration.default.appearDelay == 0)
     }
 
     @Test func liquidGlassIsOptInAndChangesConfiguration() {
@@ -45,7 +44,7 @@ struct TagConfigurationTests {
         #expect(!original.liquidGlass)
         var glass = original
         glass.liquidGlass = true
-        // Both the polling task and badge refresh use configuration equality.
+        // Appearance changes must invalidate reused badge content.
         #expect(glass != original)
         #expect(Set([original, glass]).count == 2)
     }
@@ -98,6 +97,42 @@ struct TagConfigurationTests {
         #expect(restored !== glass)
         #expect(type(of: restored) == NSPanel.self)
         #expect(!glass.isVisible)
+    }
+
+    @Test func appearancePreferencesPreserveExistingValuesAndValidateSavedNumbers() throws {
+        let suite = "CallsignTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        #expect(TagConfiguration.load(from: defaults) == .default)
+
+        let custom = TagConfiguration(
+            position: .rightCenter, label: .windowTitle, liquidGlass: true,
+            overlap: 0.7, scale: 1.3, offsetX: 12, offsetY: -25,
+            red: 0.1, green: 0.2, blue: 0.3, alpha: 0.4,
+            textRed: 0.5, textGreen: 0.6, textBlue: 0.7, textAlpha: 0.8)
+        custom.save(to: defaults)
+        #expect(TagConfiguration.load(from: defaults) == custom)
+        #expect(defaults.string(forKey: "tag.position") == "rightCenter")
+        #expect(defaults.double(forKey: "tag.textBlue") == 0.7)
+        defaults.set(0.5, forKey: "tag.appearDelay")
+        #expect(TagConfiguration.load(from: defaults) == custom)
+
+        defaults.set("unknown", forKey: "tag.position")
+        defaults.set(Double.infinity, forKey: "tag.scale")
+        defaults.set(900, forKey: "tag.offsetX")
+        defaults.set(-1, forKey: "tag.alpha")
+        let validated = TagConfiguration.load(from: defaults)
+        #expect(validated.position == TagConfiguration.default.position)
+        #expect(validated.scale == TagConfiguration.default.scale)
+        #expect(validated.offsetX == 80)
+        #expect(validated.alpha == 0)
+        #expect(validated.textBlue == custom.textBlue)
+
+        defaults.set(true, forKey: "app.showInDock")
+        TagConfiguration.default.save(to: defaults)
+        #expect(TagConfiguration.load(from: defaults) == .default)
+        #expect(defaults.object(forKey: "tag.appearDelay") == nil)
+        #expect(defaults.bool(forKey: "app.showInDock"))
     }
 
     @Test func labelSelectionAndFallback() {
