@@ -205,7 +205,7 @@ final class MissionControlProbe: ObservableObject {
             }
             status = wasRunning
                 ? "Mission Control closed."
-                : "Ready — open Mission Control."
+                : "Ready. Open Mission Control."
             return 33
         }
 
@@ -243,8 +243,8 @@ final class MissionControlProbe: ObservableObject {
             suspendBadges()
             settledMilliseconds = nil
             status = thumbnails.isEmpty
-                ? "Mission Control — waiting for thumbnail frames…"
-                : "Mission Control transitioning — tags hidden…"
+                ? "Mission Control: waiting for thumbnail frames…"
+                : "Mission Control transitioning. Tags hidden…"
             return 33
         }
         let shouldFadeIn = phase != .active
@@ -276,7 +276,7 @@ final class MissionControlProbe: ObservableObject {
             badges,
             configuration: configuration,
             animated: shouldFadeIn)
-        status = "Mission Control active — labeled \(badges.count) of \(thumbnails.count) windows (\(source))."
+        status = "Mission Control active. Labeled \(badges.count) of \(thumbnails.count) windows (\(source))."
         if let elapsed = settledMilliseconds {
             status += " Settled after ~\(elapsed) ms."
         }
@@ -299,7 +299,7 @@ final class MissionControlProbe: ObservableObject {
             settleStartedAt = ProcessInfo.processInfo.systemUptime
             settledMilliseconds = nil
             cancelReport()
-            status = "Mission Control transitioning — tags hidden…"
+            status = "Mission Control transitioning. Tags hidden…"
         }
     }
 
