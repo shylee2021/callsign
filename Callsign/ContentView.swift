@@ -172,12 +172,9 @@ struct ContentView: View {
     private var aboutSettings: some View {
         VStack {
             HStack(spacing: 24) {
-                // Reuse the menu-bar symbol until Callsign has a custom app icon.
-                Image(systemName: "tag")
-                    .font(.system(size: 64, weight: .medium))
-                    .foregroundStyle(.tint)
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
                     .frame(width: 120, height: 120)
-                    .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 26))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Callsign").font(.system(size: 36, weight: .semibold))
