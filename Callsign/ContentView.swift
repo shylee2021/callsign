@@ -337,9 +337,6 @@ private struct TroubleshootingView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             HStack {
-                Button("Input Monitoring Settings…") {
-                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!)
-                }
                 Button("Copy Report", action: probe.copyReport).disabled(probe.report.isEmpty)
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)

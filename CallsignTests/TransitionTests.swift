@@ -1,4 +1,4 @@
-import CoreGraphics
+import AppKit
 import Testing
 @testable import Callsign
 
@@ -9,163 +9,57 @@ struct TransitionTests {
     @Test func settlingRequiresTwoUnchangedPolls() {
         var stability = ThumbnailStability()
         let frames = [thumbnail, thumbnail.offsetBy(dx: 600, dy: 0)]
-        #expect(stability.update(frames: frames, blocked: false) == false)
-        #expect(!stability.didMove)
-        #expect(stability.update(frames: frames, blocked: false) == false)
-        #expect(stability.update(frames: frames.reversed(), blocked: false) == true)
+        #expect(stability.update(frames: frames) == false)
+        #expect(stability.update(frames: frames) == false)
+        #expect(stability.update(frames: frames.reversed()) == true)
+        // No keyboard/mouse hints or gesture phases are needed to stay settled.
+        #expect(stability.update(frames: frames) == true)
 
         let moved = frames.map { $0.offsetBy(dx: 20, dy: -10) }
-        #expect(stability.update(frames: moved, blocked: false) == false)
-        #expect(stability.didMove)
-        #expect(stability.update(frames: moved, blocked: false) == false)
-        #expect(stability.update(frames: moved, blocked: false) == true)
-    }
-
-    @Test func pausedGestureBlocksSettlingUntilRelease() {
-        var stability = ThumbnailStability()
-        var interaction = MissionControlInteraction()
-        #expect(interaction.receiveGesture(phase: 1) == true)
-        #expect(stability.update(frames: [thumbnail], blocked: interaction.blocksSettling(at: 10)) == false)
-        #expect(interaction.blocksSettling(at: 100))
-        #expect(interaction.receiveGesture(phase: 0) == false)
-        #expect(interaction.gestureActive)
-        #expect(interaction.receiveGesture(phase: 4) == true)
-        #expect(stability.update(frames: [thumbnail], blocked: interaction.blocksSettling(at: 100)) == false)
-        #expect(stability.update(frames: [thumbnail], blocked: false) == false)
-        #expect(stability.update(frames: [thumbnail], blocked: false) == true)
-        #expect(interaction.receiveGesture(phase: 2) == true)
-        #expect(interaction.receiveGesture(phase: 8) == true)
-        #expect(!interaction.blocksSettling(at: 101))
-    }
-
-    @Test func shortcutHintsClearOnMotionOrExpire() {
-        var stability = ThumbnailStability()
-        var interaction = MissionControlInteraction()
-        interaction.anticipateMotion(at: 102)
-        #expect(stability.update(frames: [thumbnail], blocked: interaction.blocksSettling(at: 102.02)) == false)
-        let moved = [thumbnail.offsetBy(dx: 20, dy: -10)]
-        #expect(stability.update(frames: moved, blocked: interaction.blocksSettling(at: 102.04)) == false)
-        #expect(stability.didMove)
-        interaction.observedMotion()
-        #expect(!interaction.blocksSettling(at: 102.04))
-        #expect(stability.update(frames: moved, blocked: false) == false)
-        #expect(stability.update(frames: moved, blocked: false) == false)
-        #expect(stability.update(frames: moved, blocked: false) == true)
-        interaction.anticipateMotion(at: 103)
-        #expect(interaction.blocksSettling(at: 103.10))
-        #expect(!interaction.blocksSettling(at: 103.30))
+        #expect(stability.update(frames: moved) == false)
+        #expect(stability.update(frames: moved) == false)
+        #expect(stability.update(frames: moved) == true)
     }
 
     @Test func windowChangesAndInvalidationRestartSettling() {
         var stability = ThumbnailStability()
         let frames = [thumbnail, thumbnail.offsetBy(dx: 600, dy: 0)]
-        #expect(stability.update(frames: frames, blocked: false) == false)
-        #expect(stability.update(frames: frames, blocked: false) == false)
-        #expect(stability.update(frames: frames, blocked: false) == true)
-        #expect(stability.update(frames: [thumbnail], blocked: false) == false)
-        #expect(stability.update(frames: [thumbnail], blocked: false) == false)
-        #expect(stability.update(frames: [thumbnail], blocked: false) == true)
-        #expect(stability.update(frames: [], blocked: false) == false)
-        #expect(stability.update(frames: [], blocked: false) == false)
-        #expect(stability.update(frames: [thumbnail], blocked: false) == false)
-        #expect(stability.update(frames: [thumbnail], blocked: false) == false)
-        #expect(stability.update(frames: [thumbnail], blocked: false) == true)
+        #expect(stability.update(frames: frames) == false)
+        #expect(stability.update(frames: frames) == false)
+        #expect(stability.update(frames: frames) == true)
+        #expect(stability.update(frames: [thumbnail]) == false)
+        #expect(stability.update(frames: [thumbnail]) == false)
+        #expect(stability.update(frames: [thumbnail]) == true)
+        #expect(stability.update(frames: []) == false)
+        #expect(stability.update(frames: []) == false)
+        #expect(stability.update(frames: [thumbnail]) == false)
+        #expect(stability.update(frames: [thumbnail]) == false)
+        #expect(stability.update(frames: [thumbnail]) == true)
         stability.invalidate()
-        #expect(stability.update(frames: [thumbnail], blocked: false) == false)
-        #expect(stability.update(frames: [thumbnail], blocked: false) == false)
-        #expect(stability.update(frames: [thumbnail], blocked: false) == true)
+        #expect(stability.update(frames: [thumbnail]) == false)
+        #expect(stability.update(frames: [thumbnail]) == false)
+        #expect(stability.update(frames: [thumbnail]) == true)
     }
 
     @Test func subPointDriftAccumulatesAcrossPolls() {
         var stability = ThumbnailStability()
-        #expect(stability.update(frames: [thumbnail], blocked: false) == false)
-        #expect(stability.update(frames: [thumbnail.offsetBy(dx: 0.75, dy: 0)], blocked: false) == false)
-        #expect(stability.update(frames: [thumbnail.offsetBy(dx: 1.5, dy: 0)], blocked: false) == false)
-        #expect(stability.update(frames: [thumbnail.offsetBy(dx: 1.5, dy: 0)], blocked: false) == false)
-        #expect(stability.update(frames: [thumbnail.offsetBy(dx: 1.5, dy: 0)], blocked: false) == true)
+        #expect(stability.update(frames: [thumbnail]) == false)
+        #expect(stability.update(frames: [thumbnail.offsetBy(dx: 0.75, dy: 0)]) == false)
+        #expect(stability.update(frames: [thumbnail.offsetBy(dx: 1.5, dy: 0)]) == false)
+        #expect(stability.update(frames: [thumbnail.offsetBy(dx: 1.5, dy: 0)]) == false)
+        #expect(stability.update(frames: [thumbnail.offsetBy(dx: 1.5, dy: 0)]) == true)
     }
 
-    @Test func screenshotsDoNotHideTagsOrLeaveTransitionMonitoringDisabled() throws {
-        let monitor = MissionControlInputMonitor()
-        var transitions = 0
-        monitor.onTransition = { transitions += 1 }
-        let event = try #require(CGEvent(source: nil))
-        @MainActor func send(_ type: CGEventType, key: Int64 = 0, flags: CGEventFlags = []) {
-            event.type = type
-            event.flags = flags
-            event.setIntegerValueField(.keyboardEventKeycode, value: key)
-            monitor.handle(type: type, event: event)
+    @Test func spaceNotificationsDoNotRestartOrRetainPausedProbes() {
+        weak var released: MissionControlProbe?
+        do {
+            let probe = MissionControlProbe()
+            released = probe
+            probe.stop()
+            NSWorkspace.shared.notificationCenter.post(
+                name: NSWorkspace.activeSpaceDidChangeNotification, object: NSWorkspace.shared)
+            #expect(probe.status == "Callsign is paused.")
         }
-
-        for flags: CGEventFlags in [[.maskCommand, .maskShift], [.maskCommand, .maskShift, .maskControl]] {
-            monitor.stop()
-            monitor.missionControlIsOpen = true
-            transitions = 0
-            send(.keyDown, key: 20, flags: flags) // Entire screen.
-            #expect(transitions == 0)
-            #expect(!monitor.interaction.blocksSettling(at: 0))
-            send(.keyDown, key: 21, flags: flags) // Region, after releasing the modifiers.
-            send(.leftMouseDown)
-            send(.leftMouseUp)
-            #expect(transitions == 0)
-            send(.keyDown, key: 21, flags: flags)
-            send(.keyDown, key: 49) // Space selects window capture.
-            send(.leftMouseDown)
-            send(.leftMouseUp)
-            #expect(transitions == 0)
-            send(.leftMouseDown) // Ordinary Mission Control clicks still hide immediately.
-            send(.leftMouseUp)
-            #expect(transitions == 1)
-            send(.keyDown, key: 21, flags: flags)
-            send(.keyDown, key: 53) // Cancel capture without dismissing Mission Control.
-            #expect(transitions == 1)
-            send(.keyDown, key: 53) // A subsequent Escape dismisses Mission Control normally.
-            #expect(transitions == 2)
-            send(.keyDown, key: 21, flags: flags)
-            send(.keyDown, key: 124, flags: .maskControl)
-            #expect(transitions == 3) // Actual navigation still takes priority.
-            send(.keyDown, key: 21, flags: flags)
-            monitor.missionControlIsOpen = false
-            monitor.missionControlIsOpen = true
-            send(.leftMouseDown)
-            #expect(transitions == 4) // No stale capture mode on re-entry.
-        }
-        monitor.stop()
-    }
-
-    @Test func inputMonitorDecodesTransitionsAndRecoversFromDisabledTap() throws {
-        // Decode synthetic events without installing a tap, requesting access, or posting input.
-        let monitor = MissionControlInputMonitor()
-        var transitions = 0
-        monitor.onTransition = { transitions += 1 }
-        let event = try #require(CGEvent(source: nil))
-        event.type = CGEventType(rawValue: 30)!
-        event.setIntegerValueField(CGEventField(rawValue: 110)!, value: 23)
-        event.setIntegerValueField(CGEventField(rawValue: 123)!, value: 2)
-        event.setIntegerValueField(CGEventField(rawValue: 132)!, value: 1)
-        monitor.handle(type: CGEventType(rawValue: 30)!, event: event)
-        #expect(monitor.interaction.gestureActive && transitions == 1)
-        event.setIntegerValueField(CGEventField(rawValue: 132)!, value: 4)
-        monitor.handle(type: CGEventType(rawValue: 30)!, event: event)
-        #expect(!monitor.interaction.gestureActive && transitions == 2)
-        event.setIntegerValueField(CGEventField(rawValue: 123)!, value: 1)
-        event.setIntegerValueField(CGEventField(rawValue: 132)!, value: 2)
-        monitor.handle(type: CGEventType(rawValue: 30)!, event: event)
-        #expect(monitor.interaction.gestureActive && transitions == 3)
-        monitor.handle(type: .tapDisabledByTimeout, event: event)
-        #expect(!monitor.interaction.gestureActive && transitions == 4)
-        event.setIntegerValueField(CGEventField(rawValue: 123)!, value: 3)
-        monitor.handle(type: CGEventType(rawValue: 30)!, event: event)
-        #expect(transitions == 4)
-        event.type = .keyDown
-        event.flags = .maskControl
-        event.setIntegerValueField(.keyboardEventKeycode, value: 124)
-        monitor.handle(type: .keyDown, event: event)
-        #expect(transitions == 5)
-        monitor.missionControlIsOpen = true
-        monitor.handle(type: .otherMouseDown, event: event)
-        #expect(transitions == 6)
-        monitor.stop()
-        #expect(!monitor.interaction.gestureActive && !monitor.isRunning)
+        #expect(released == nil)
     }
 }

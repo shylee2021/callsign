@@ -45,13 +45,12 @@ struct Thumbnail {
 struct ThumbnailStability {
     private var referenceFrames: [CGRect] = []
     private var unchangedPolls: Int?
-    private(set) var didMove = false
 
     mutating func invalidate() {
         unchangedPolls = nil
     }
 
-    mutating func update(frames: [CGRect], blocked: Bool) -> Bool {
+    mutating func update(frames: [CGRect]) -> Bool {
         // WindowServer may reorder windows when one is hovered; geometry order must stay consistent.
         let frames = frames.sorted {
             ($0.minX, $0.minY, $0.width, $0.height) < ($1.minX, $1.minY, $1.width, $1.height)
@@ -60,13 +59,12 @@ struct ThumbnailStability {
             abs($0.minX - $1.minX) > 1 || abs($0.minY - $1.minY) > 1
                 || abs($0.width - $1.width) > 1 || abs($0.height - $1.height) > 1
         }
-        didMove = !referenceFrames.isEmpty && moved
         if moved {
             // Keep this reference until movement exceeds the tolerance, so slow drift accumulates.
             referenceFrames = frames
             unchangedPolls = nil
         }
-        guard !frames.isEmpty, !blocked else {
+        guard !frames.isEmpty else {
             unchangedPolls = nil
             return false
         }
@@ -74,7 +72,8 @@ struct ThumbnailStability {
             unchangedPolls = 0
             return false
         }
-        // ponytail: two quiet polls (~66 ms) estimate completion; increase if slow animations flash.
+        // ponytail: two quiet polls (~66 ms) can mistake a paused swipe for completion.
+        // Prefer a system transition-completion notification if one becomes available.
         unchangedPolls = min(count + 1, 2)
         return unchangedPolls == 2
     }
@@ -134,7 +133,8 @@ final class MissionControlProbe: ObservableObject {
     }
 
     private let overlays = OverlayManager()
-    private let inputMonitor = MissionControlInputMonitor()
+    private let workspaceCenter = NSWorkspace.shared.notificationCenter
+    private var spaceObserver: NSObjectProtocol?
     private var phase = MissionControlPhase.normal
     private var stability = ThumbnailStability()
     private var settleStartedAt = 0.0
@@ -148,11 +148,19 @@ final class MissionControlProbe: ObservableObject {
     private var requestedTitleIDs: Set<CGWindowID> = []
 
     init() {
-        inputMonitor.onTransition = { [weak self] in
-            guard let self else { return }
-            self.stability.invalidate()
-            self.suspendBadges()
+        spaceObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.phase != .normal else { return }
+                self.stability.invalidate()
+                self.suspendBadges()
+            }
         }
+    }
+
+    deinit {
+        if let spaceObserver { workspaceCenter.removeObserver(spaceObserver) }
     }
 
     func requestAccess() {
@@ -167,7 +175,6 @@ final class MissionControlProbe: ObservableObject {
     }
 
     func stop() {
-        inputMonitor.stop()
         clearWindowTitles()
         resetMissionControl()
         status = "Callsign is paused."
@@ -191,12 +198,10 @@ final class MissionControlProbe: ObservableObject {
             clearWindowTitles()
         }
         guard trusted else {
-            inputMonitor.stop()
             resetMissionControl()
             status = "Accessibility access is required."
             return 500
         }
-        inputMonitor.start()
         guard let (missionControl, dockPID) = currentMissionControl() else {
             let wasRunning = phase != .normal
             if wasRunning {
@@ -220,7 +225,6 @@ final class MissionControlProbe: ObservableObject {
             settleStartedAt = ProcessInfo.processInfo.systemUptime
             status = "Mission Control entering…"
         }
-        inputMonitor.missionControlIsOpen = true
 
         let windows = onScreenWindows()
         let thumbnails: [Thumbnail]
@@ -238,10 +242,7 @@ final class MissionControlProbe: ObservableObject {
         }
 
         let now = ProcessInfo.processInfo.systemUptime
-        let settled = stability.update(
-            frames: thumbnails.map(\.frame),
-            blocked: inputMonitor.interaction.blocksSettling(at: now))
-        if stability.didMove { inputMonitor.observedMotion() }
+        let settled = stability.update(frames: thumbnails.map(\.frame))
         if !settled {
             suspendBadges()
             settledMilliseconds = nil
@@ -284,9 +285,6 @@ final class MissionControlProbe: ObservableObject {
         if let elapsed = settledMilliseconds {
             status += " Settled after ~\(elapsed) ms."
         }
-        if !inputMonitor.isRunning {
-            status += " Input monitor unavailable; using window motion only."
-        }
 
         scheduleReport { [weak self] in
             self?.makeReport(for: missionControl, dockPID: dockPID, windows: windows) ?? ""
@@ -295,7 +293,7 @@ final class MissionControlProbe: ObservableObject {
     }
 
     private func suspendBadges() {
-        // Hiding must be immediate, including when an input arrives between geometry polls.
+        // Space notifications can arrive between geometry polls; hide immediately.
         overlays.hide()
         lastBadgeSync = 0
         if phase == .active {
@@ -322,7 +320,6 @@ final class MissionControlProbe: ObservableObject {
 
     private func resetMissionControl() {
         phase = .normal
-        inputMonitor.missionControlIsOpen = false
         stability = ThumbnailStability()
         settleStartedAt = 0
         settledMilliseconds = nil
@@ -494,10 +491,7 @@ final class MissionControlProbe: ObservableObject {
         let tree = dumpTree(missionControl, depth: 0, remaining: &remaining)
             .joined(separator: "\n")
         let timing = settledMilliseconds.map { "~\($0) ms from transition detection to settled" } ?? "Not measured"
-        let monitoring = inputMonitor.isRunning
-            ? "Read-only input monitor active; Dock gesture events: \(inputMonitor.gestureEventCount)"
-            : "Input monitor unavailable. Check Privacy & Security > Input Monitoring for Callsign."
-        return "SETTLE TIMING\n\(timing) (2 unchanged polls, ~66 ms; 33 ms poll delay + API overhead)\n\(monitoring)\n\nMISSION CONTROL AX TREE\n\(tree)\n\nON-SCREEN WINDOWS\n\(windowReport(dockPID: dockPID, windows: windows))"
+        return "SETTLE TIMING\n\(timing) (2 unchanged polls, ~66 ms; 33 ms poll delay + API overhead)\nDetection: Dock Accessibility, window geometry and Space notifications. No global input monitoring.\n\nMISSION CONTROL AX TREE\n\(tree)\n\nON-SCREEN WINDOWS\n\(windowReport(dockPID: dockPID, windows: windows))"
     }
 
     private func dumpTree(
