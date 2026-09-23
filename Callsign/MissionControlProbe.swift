@@ -101,6 +101,7 @@ struct WindowInfo {
 }
 
 struct AppBadge {
+    let windowID: CGWindowID
     let pid: pid_t
     let appName: String
     let windowTitle: String
@@ -144,6 +145,7 @@ final class MissionControlProbe: ObservableObject {
     private var windowTitles: [pid_t: [CGWindowID: String]] = [:]
     private var titleTask: Task<Void, Never>?
     private var lastTitleSync = -Double.infinity
+    private var requestedTitleIDs: Set<CGWindowID> = []
 
     init() {
         inputMonitor.onTransition = { [weak self] in
@@ -175,6 +177,7 @@ final class MissionControlProbe: ObservableObject {
         titleTask?.cancel()
         titleTask = nil
         windowTitles = [:]
+        requestedTitleIDs = []
         lastTitleSync = -Double.infinity
     }
 
@@ -265,6 +268,7 @@ final class MissionControlProbe: ObservableObject {
             }
             let identity = appIdentity(for: window)
             return AppBadge(
+                windowID: window.id,
                 pid: window.pid,
                 appName: identity.name,
                 windowTitle: thumbnail.title,
@@ -361,11 +365,13 @@ final class MissionControlProbe: ObservableObject {
         // Outside Mission Control, do not enumerate windows on every polling tick.
         if windows == nil, now - lastTitleSync < 1 { return }
         let candidates = (windows ?? onScreenWindows()).filter { $0.canReceiveBadge && $0.pid > 0 }
-        // Newly discovered windows need their first result without waiting for the refresh interval.
-        guard now - lastTitleSync >= 1
-                || candidates.contains(where: { !$0.hasWindowTitleResult(in: windowTitles) })
+        // Retry pending reads sooner, but don't hammer a busy app on every geometry poll.
+        let interval = candidates.contains { !$0.hasWindowTitleResult(in: windowTitles) } ? 0.15 : 1.0
+        guard now - lastTitleSync >= interval
+                || candidates.contains(where: { !requestedTitleIDs.contains($0.id) })
         else { return }
         lastTitleSync = now
+        requestedTitleIDs = Set(candidates.map(\.id))
         var targets = Dictionary(grouping: candidates, by: \.pid).mapValues { Set($0.map(\.id)) }
         windowTitles = targets.reduce(into: [:]) { cache, target in
             cache[target.key] = windowTitles[target.key]?.filter { target.value.contains($0.key) }
@@ -384,7 +390,9 @@ final class MissionControlProbe: ObservableObject {
                 for await (pid, titles) in group {
                     await MainActor.run { [weak self] in
                         guard !Task.isCancelled, let self else { return }
-                        self.windowTitles[pid] = titles
+                        // Failed reads stay pending; they must not erase a previously resolved title.
+                        self.windowTitles[pid, default: [:]].merge(titles) { _, new in new }
+                        if !titles.isEmpty { self.lastBadgeSync = 0 }
                     }
                 }
             }
@@ -412,27 +420,43 @@ final class MissionControlProbe: ObservableObject {
     private nonisolated static func readAccessibilityTitles(
         for pid: pid_t, windowIDs: Set<CGWindowID>
     ) -> [CGWindowID: String] {
-        // Record completed lookups even for untitled/inaccessible windows, allowing the app-name fallback.
-        var titles = Dictionary(uniqueKeysWithValues: windowIDs.map { ($0, "") })
+        var titles: [CGWindowID: String] = [:]
+        let untitled = Dictionary(uniqueKeysWithValues: windowIDs.map { ($0, "") })
         // This private bridge identifies AX windows even when Mission Control scales their frames.
         typealias WindowIDFunction = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
-        guard let handle = dlopen(nil, RTLD_LAZY) else { return titles }
+        guard let handle = dlopen(nil, RTLD_LAZY) else { return untitled }
         defer { dlclose(handle) }
-        guard let symbol = dlsym(handle, "_AXUIElementGetWindow") else { return titles }
+        guard let symbol = dlsym(handle, "_AXUIElementGetWindow") else { return untitled }
         let windowID = unsafeBitCast(symbol, to: WindowIDFunction.self)
         guard !Task.isCancelled else { return titles }
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, 0.05)
-        let windows = attribute("AXWindows", of: app) as? [AXUIElement] ?? []
+        var value: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(app, "AXWindows" as CFString, &value)
+        guard error == .success, let windows = value as? [AXUIElement] else {
+            // Unsupported AX is a real fallback; a timeout or interrupted read is not.
+            if error == .attributeUnsupported || error == .notImplemented { return untitled }
+            return titles
+        }
         for window in windows {
             guard !Task.isCancelled else { break }
             AXUIElementSetMessagingTimeout(window, 0.05)
             var id: CGWindowID = 0
-            guard windowID(window, &id) == .success, windowIDs.contains(id),
-                  let title = attribute("AXTitle", of: window) as? String, !title.isEmpty else { continue }
-            titles[id] = title
+            guard windowID(window, &id) == .success, windowIDs.contains(id) else { continue }
+            var value: CFTypeRef?
+            let error = AXUIElementCopyAttributeValue(window, "AXTitle" as CFString, &value)
+            if let title = resolvedAccessibilityTitle(value, error: error) { titles[id] = title }
+            if titles.count == windowIDs.count { break }
         }
         return titles
+    }
+
+    nonisolated static func resolvedAccessibilityTitle(_ value: CFTypeRef?, error: AXError) -> String? {
+        switch error {
+        case .success: value as? String
+        case .noValue, .attributeUnsupported, .notImplemented: ""
+        default: nil
+        }
     }
 
     private func cancelReport() {

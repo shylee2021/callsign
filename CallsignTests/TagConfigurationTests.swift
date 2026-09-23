@@ -68,20 +68,20 @@ struct TagConfigurationTests {
         let overlays = OverlayManager()
         defer { overlays.hide() }
         let badge = AppBadge(
-            pid: 1, appName: "Test", windowTitle: "Window",
+            windowID: 10, pid: 1, appName: "Test", windowTitle: "Window",
             icon: NSImage(size: NSSize(width: 32, height: 32)),
             thumbnailFrame: CGRect(x: 100, y: 100, width: 400, height: 300))
         var configuration = TagConfiguration.default
 
         overlays.show([badge], configuration: configuration, animated: false)
-        let original = try #require(overlays.panels.first?.window)
+        let original = try #require(overlays.panels[10]?.window)
         #expect(type(of: original) == NSPanel.self)
         // Fail explicitly if a future AppKit removes the private appearance query.
         try #require(original.responds(to: NSSelectorFromString("_hasActiveAppearance")))
 
         configuration.liquidGlass = true
         overlays.show([badge], configuration: configuration, animated: false)
-        let glass = try #require(overlays.panels.first?.window)
+        let glass = try #require(overlays.panels[10]?.window)
         #expect(glass !== original)
         #expect(!original.isVisible)
         #expect(glass.value(forKey: "_hasActiveAppearance") as? Bool == true)
@@ -89,14 +89,65 @@ struct TagConfigurationTests {
         #expect(glass.ignoresMouseEvents && glass.styleMask.contains(.nonactivatingPanel))
 
         overlays.show([badge], configuration: configuration, animated: false)
-        #expect(overlays.panels.first?.window === glass)
+        #expect(overlays.panels[10]?.window === glass)
 
         configuration.liquidGlass = false
         overlays.show([badge], configuration: configuration, animated: false)
-        let restored = try #require(overlays.panels.first?.window)
+        let restored = try #require(overlays.panels[10]?.window)
         #expect(restored !== glass)
         #expect(type(of: restored) == NSPanel.self)
         #expect(!glass.isVisible)
+    }
+
+    @Test func lateTitlesAndReorderingKeepPanelsAttachedToTheirWindows() throws {
+        let overlays = OverlayManager()
+        defer { overlays.hide() }
+        let icon = NSImage(size: NSSize(width: 32, height: 32))
+        func badge(_ id: CGWindowID, title: String) -> AppBadge {
+            AppBadge(windowID: id, pid: 1, appName: "Editor", windowTitle: title, icon: icon,
+                     thumbnailFrame: CGRect(x: -10000, y: -10000 + Int(id) * 100, width: 400, height: 300))
+        }
+        let first = badge(10, title: "First document")
+        let second = badge(20, title: "Second document")
+        let configuration = TagConfiguration(label: .windowTitle)
+        // The second window's title arrives first; the first must not steal its visible panel.
+        overlays.show([second], configuration: configuration, animated: false)
+        let secondPanel = try #require(overlays.panels[20])
+        let secondFrame = secondPanel.window.frame
+        overlays.show([first, second], configuration: configuration, animated: false)
+        let firstPanel = try #require(overlays.panels[10])
+        #expect(overlays.panels[20] === secondPanel)
+        #expect(secondPanel.window.frame == secondFrame)
+        #expect((secondPanel.window.contentView as? NSHostingView<BadgeView>)?.rootView.text == "Second document")
+        #expect(firstPanel.window.frame.width > 100)
+
+        overlays.show([second, first], configuration: configuration, animated: false)
+        #expect(overlays.panels[10] === firstPanel && overlays.panels[20] === secondPanel)
+        let width = firstPanel.window.frame.width
+        let renamed = badge(10, title: "Document with a much longer window title")
+        overlays.show([renamed], configuration: configuration, animated: false)
+        #expect(overlays.panels[10] === firstPanel)
+        #expect(firstPanel.window.frame.width > width)
+        #expect(overlays.panels[20] == nil && !secondPanel.window.isVisible)
+        overlays.hide()
+        overlays.show([renamed], configuration: configuration, animated: false)
+        #expect(overlays.panels[10] === firstPanel)
+    }
+
+    @Test func unchangedUpdatesDoNotKeepRestartingTheAppearanceFade() async throws {
+        let overlays = OverlayManager()
+        defer { overlays.hide() }
+        let badge = AppBadge(
+            windowID: 30, pid: 1, appName: "Editor", windowTitle: "Document",
+            icon: NSImage(size: NSSize(width: 32, height: 32)),
+            thumbnailFrame: CGRect(x: -10000, y: -10000, width: 400, height: 300))
+        overlays.show([badge], configuration: .default, animated: true)
+        let panel = try #require(overlays.panels[30])
+        for _ in 0..<16 {
+            try await Task.sleep(for: .milliseconds(25))
+            overlays.show([badge], configuration: .default, animated: false)
+        }
+        #expect(panel.window.alphaValue == 1)
     }
 
     @Test func appearancePreferencesPreserveExistingValuesAndValidateSavedNumbers() throws {

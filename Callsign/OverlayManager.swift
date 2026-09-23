@@ -8,7 +8,7 @@ import SwiftUI
 
 @MainActor
 final class OverlayManager {
-    private(set) var panels: [BadgePanel] = []
+    private(set) var panels: [CGWindowID: BadgePanel] = [:]
     private var liquidGlass = false
 
     func show(
@@ -18,27 +18,25 @@ final class OverlayManager {
     ) {
         // Recreate only when changing window classes, so Glass-off uses unmodified AppKit behavior.
         if liquidGlass != configuration.liquidGlass {
-            hide()
+            panels.values.forEach { $0.window.close() }
             panels.removeAll()
             liquidGlass = configuration.liquidGlass
         }
-        // Reuse panels across polls; spare panels stay hidden for the next capture.
-        while panels.count < badges.count {
-            panels.append(BadgePanel(liquidGlass: liquidGlass))
+        // Late titles and WindowServer reordering must not move a visible tag to another panel.
+        let ids = Set(badges.map(\.windowID))
+        for (id, panel) in panels where !ids.contains(id) {
+            panel.window.close()
+            panels.removeValue(forKey: id)
         }
-        for (panel, badge) in zip(panels, badges) {
-            panel.show(
-                badge,
-                configuration: configuration,
-                animated: animated)
-        }
-        for panel in panels.dropFirst(badges.count) {
-            panel.hide()
+        for badge in badges {
+            let panel = panels[badge.windowID] ?? BadgePanel(liquidGlass: liquidGlass)
+            panels[badge.windowID] = panel
+            panel.show(badge, configuration: configuration, animated: animated)
         }
     }
 
     func hide() {
-        panels.forEach { $0.hide() }
+        panels.values.forEach { $0.hide() }
     }
 }
 
@@ -69,6 +67,8 @@ final class BadgePanel {
             icon: placeholder,
             text: "App",
             configuration: TagConfiguration(liquidGlass: liquidGlass)))
+        // We size the panel explicitly; only intrinsic sizing is needed for fittingSize.
+        hostingView.sizingOptions = [.intrinsicContentSize]
         if liquidGlass {
             window = GlassBadgeWindow(
                 contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
@@ -78,6 +78,7 @@ final class BadgePanel {
                 contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                 backing: .buffered, defer: false)
         }
+        window.isReleasedWhenClosed = false
         window.contentView = hostingView
         window.backgroundColor = .clear
         window.isOpaque = false
@@ -111,36 +112,27 @@ final class BadgePanel {
                 icon: badge.icon,
                 text: text,
                 configuration: configuration)
+            let fittingSize = hostingView.fittingSize
+            hostingView.frame = NSRect(origin: .zero, size: NSSize(
+                width: min(max(fittingSize.width, 44 * configuration.scale), 300 * configuration.scale),
+                height: max(fittingSize.height, 38 * configuration.scale)))
         }
 
-        let fittingSize = hostingView.fittingSize
-        let size = NSSize(
-            width: min(max(fittingSize.width, 44 * configuration.scale), 300 * configuration.scale),
-            height: max(fittingSize.height, 38 * configuration.scale))
-        hostingView.frame = NSRect(origin: .zero, size: size)
-
+        let size = hostingView.frame.size
         let axOrigin = configuration.badgeOrigin(thumbnail: badge.thumbnailFrame, badgeSize: size)
         // AX uses top-left coordinates; AppKit uses bottom-left. Flip around the primary display.
         let primaryScreenTop = NSScreen.screens.first?.frame.maxY ?? 0
-        window.setFrame(NSRect(
+        let frame = NSRect(
             x: axOrigin.x,
             y: primaryScreenTop - axOrigin.y - size.height,
             width: size.width,
-            height: size.height), display: true)
-        let shouldFade = animated || !window.isVisible
+            height: size.height)
+        if window.frame != frame { window.setFrame(frame, display: true) }
+        let appearing = animated || !window.isVisible
+        let shouldFade = appearing && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if appearing { window.alphaValue = shouldFade ? 0 : 1 }
+        if !window.isVisible { window.orderFrontRegardless() }
         if shouldFade {
-            window.alphaValue = 0
-        }
-        window.orderFrontRegardless()
-        if shouldFade {
-            DispatchQueue.main.async { [weak window] in
-                guard let window, window.isVisible else { return }
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.15
-                    window.animator().alphaValue = 1
-                }
-            }
-        } else if window.alphaValue < 1 {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.15
                 window.animator().alphaValue = 1

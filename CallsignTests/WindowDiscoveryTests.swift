@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import CoreGraphics
 import Testing
 @testable import Callsign
@@ -64,6 +65,19 @@ struct WindowDiscoveryTests {
         let thumbnail = try #require(Thumbnail.fromWindowServer([window], windowTitles: untitled).first)
         #expect(TagLabel.windowTitle.text(appName: "Editor", windowTitle: thumbnail.title) == "Editor")
         #expect(window.hasWindowTitleResult(in: [1: [10: "Document"]]))
+    }
+
+    @Test func failedTitleReadsStayPendingRatherThanBecomingAppNameFallbacks() {
+        let read = MissionControlProbe.resolvedAccessibilityTitle
+        #expect(read(nil, .cannotComplete) == nil)
+        #expect(read(nil, .invalidUIElement) == nil)
+        #expect(read(nil, .success) == nil)
+        #expect(read(NSNumber(value: 42), .success) == nil)
+        #expect(read("Document" as CFString, .success) == "Document")
+        #expect(read("" as CFString, .success) == "")
+        #expect(read(nil, .noValue) == "")
+        #expect(read(nil, .attributeUnsupported) == "")
+        #expect(read(nil, .notImplemented) == "")
     }
 
     @Test func ownWindowTitlesUseAppKitAndNeverEnterRemoteAXTargets() throws {
