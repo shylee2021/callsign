@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import Darwin
 import SwiftUI
 import Testing
 @testable import Callsign
@@ -97,6 +98,49 @@ struct TagConfigurationTests {
         #expect(restored !== glass)
         #expect(type(of: restored) == NSPanel.self)
         #expect(!glass.isVisible)
+        for window in [original, glass, restored] {
+            // AppKit must not move the overlay back onto a desktop after ordering it.
+            #expect(!window.collectionBehavior.contains(.moveToActiveSpace))
+            #expect(!window.collectionBehavior.contains(.canJoinAllSpaces))
+            #expect(window.collectionBehavior.contains(.stationary))
+        }
+    }
+
+    @Test func panelsStayOutsideDesktopSpacesAfterMovingAndReopening() async throws {
+        let handle = try #require(dlopen(nil, RTLD_LAZY))
+        defer { dlclose(handle) }
+        let main = try #require(dlsym(handle, "CGSMainConnectionID"))
+        let copy = try #require(dlsym(handle, "CGSCopySpacesForWindows"))
+        let connection = unsafeBitCast(main, to: (@convention(c) () -> Int32).self)()
+        let spaces = unsafeBitCast(copy, to:
+            (@convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?).self)
+
+        for liquidGlass in [false, true] {
+            let overlays = OverlayManager()
+            defer { overlays.hide() }
+            let configuration = TagConfiguration(liquidGlass: liquidGlass)
+            var original: NSPanel?
+            for stage in 0..<3 {
+                if stage == 2 { overlays.hide() }
+                let badge = AppBadge(
+                    windowID: 40, pid: 1, appName: "Preview exclusion", windowTitle: "Window",
+                    icon: NSImage(size: NSSize(width: 32, height: 32)),
+                    thumbnailFrame: CGRect(x: 100 + stage * 40, y: 100, width: 400, height: 300))
+                overlays.show([badge], configuration: configuration, animated: false)
+                let window = try #require(overlays.panels[40]?.window)
+                if let original { #expect(window === original) } else { original = window }
+                // Let AppKit finish ordering: moveToActiveSpace used to reattach it asynchronously.
+                try await Task.sleep(for: .milliseconds(250))
+                overlays.show([badge], configuration: configuration, animated: false)
+                let desktops = try #require(spaces(
+                    connection, 7, [window.windowNumber] as CFArray)).takeRetainedValue()
+                #expect(CFArrayGetCount(desktops) == 0)
+                #expect(window.isVisible && !window.isKeyWindow)
+                #expect(window.alphaValue == 1)
+            }
+            overlays.show([], configuration: configuration, animated: false)
+            #expect(original?.isVisible == false)
+        }
     }
 
     @Test func lateTitlesAndReorderingKeepPanelsAttachedToTheirWindows() throws {

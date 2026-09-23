@@ -4,12 +4,14 @@
 //
 
 import AppKit
+import Darwin
 import SwiftUI
 
 @MainActor
 final class OverlayManager {
     private(set) var panels: [CGWindowID: BadgePanel] = [:]
     private var liquidGlass = false
+    private var space: OverlaySpace?
 
     func show(
         _ badges: [AppBadge],
@@ -28,16 +30,64 @@ final class OverlayManager {
             panel.window.close()
             panels.removeValue(forKey: id)
         }
+        guard !badges.isEmpty else { hide(); return }
+        let needsSpace = space == nil
+        if needsSpace { space = OverlaySpace() }
         for badge in badges {
             let panel = panels[badge.windowID] ?? BadgePanel(liquidGlass: liquidGlass)
             panels[badge.windowID] = panel
+            let behavior = panel.window.collectionBehavior.subtracting(.moveToActiveSpace)
+                .union(space == nil ? .moveToActiveSpace : [])
+            if panel.window.collectionBehavior != behavior { panel.window.collectionBehavior = behavior }
+            let wasVisible = panel.window.isVisible
+            let previousFrame = panel.window.frame
             panel.show(badge, configuration: configuration, animated: animated)
+            if needsSpace || !wasVisible || panel.window.frame != previousFrame {
+                space?.add(panel.window)
+            }
         }
     }
 
     func hide() {
         panels.values.forEach { $0.hide() }
+        space = nil
     }
+}
+
+// Desktop previews include ordinary overlay windows, even with sharingType = .none.
+// ponytail: private SkyLight space; fall back to the active desktop if unavailable.
+// Replace this with AppKit preview exclusion if Apple exposes it.
+@MainActor
+private final class OverlaySpace {
+    private let connection: Int32
+    private let id: UInt64
+    private let addWindows: @convention(c) (Int32, UInt64, CFArray, UInt32) -> Void
+    private let destroy: @convention(c) (Int32, UInt64) -> Void
+
+    init?() {
+        guard let handle = dlopen(nil, RTLD_LAZY) else { return nil }
+        defer { dlclose(handle) }
+        guard let main = dlsym(handle, "CGSMainConnectionID"),
+              let create = dlsym(handle, "SLSSpaceCreate"),
+              let level = dlsym(handle, "SLSSpaceSetAbsoluteLevel"),
+              let show = dlsym(handle, "SLSShowSpaces"),
+              let add = dlsym(handle, "SLSSpaceAddWindowsAndRemoveFromSpaces"),
+              let release = dlsym(handle, "SLSSpaceDestroy") else { return nil }
+        connection = unsafeBitCast(main, to: (@convention(c) () -> Int32).self)()
+        id = unsafeBitCast(create, to: (@convention(c) (Int32, Int32, CFDictionary?) -> UInt64).self)(connection, 1, nil)
+        guard id != 0 else { return nil }
+        addWindows = unsafeBitCast(add, to: (@convention(c) (Int32, UInt64, CFArray, UInt32) -> Void).self)
+        destroy = unsafeBitCast(release, to: (@convention(c) (Int32, UInt64) -> Void).self)
+        unsafeBitCast(level, to: (@convention(c) (Int32, UInt64, Int32) -> Void).self)(connection, id, 0)
+        unsafeBitCast(show, to: (@convention(c) (Int32, CFArray) -> Void).self)(connection, [id] as CFArray)
+    }
+
+    func add(_ window: NSWindow) {
+        // 0x7 removes membership in desktop/full-screen Spaces, not just the inactive ones.
+        addWindows(connection, id, [window.windowNumber] as CFArray, 0x7)
+    }
+
+    deinit { destroy(connection, id) }
 }
 
 @MainActor
@@ -88,7 +138,8 @@ final class BadgePanel {
         window.isExcludedFromWindowsMenu = true
         window.level = .popUpMenu
         window.collectionBehavior = [
-            .canJoinAllSpaces,
+            // Fallback if the dedicated overlay Space cannot be created.
+            .moveToActiveSpace,
             .fullScreenAuxiliary,
             .stationary,
             .ignoresCycle,
@@ -128,10 +179,13 @@ final class BadgePanel {
             width: size.width,
             height: size.height)
         if window.frame != frame { window.setFrame(frame, display: true) }
-        let appearing = animated || !window.isVisible
+        // A dedicated overlay Space is visible but is not an active desktop Space.
+        let needsOrdering = !window.isVisible
+            || (window.collectionBehavior.contains(.moveToActiveSpace) && !window.isOnActiveSpace)
+        let appearing = animated || needsOrdering
         let shouldFade = appearing && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if appearing { window.alphaValue = shouldFade ? 0 : 1 }
-        if !window.isVisible { window.orderFrontRegardless() }
+        if needsOrdering { window.orderFrontRegardless() }
         if shouldFade {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.15
