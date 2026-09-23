@@ -7,6 +7,24 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct AppControllerTests {
+    @Test func menuBarIconsAreDistinctTransparentTemplates() throws {
+        var masks: [[CGFloat]] = []
+        for name in ["MenuBarIcon", "MenuBarIconPaused"] {
+            let image = try #require(NSImage(named: name))
+            #expect(image.isTemplate)
+            #expect(image.size == NSSize(width: 20, height: 20))
+            let data = try #require(image.tiffRepresentation)
+            let bitmap = try #require(NSBitmapImageRep(data: data))
+            let alpha = (0..<bitmap.pixelsHigh).flatMap { y in
+                (0..<bitmap.pixelsWide).map { x in bitmap.colorAt(x: x, y: y)!.alphaComponent }
+            }
+            #expect(alpha.first == 0 && alpha.last == 0)
+            #expect(alpha.contains(1))
+            masks.append(alpha)
+        }
+        #expect(masks[0] != masks[1])
+    }
+
     @Test func settingsPagesPreserveControlsAndFitContent() async throws {
         let suite = "CallsignTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
