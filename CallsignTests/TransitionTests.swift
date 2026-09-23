@@ -85,6 +85,54 @@ struct TransitionTests {
         #expect(stability.update(frames: [thumbnail.offsetBy(dx: 1.5, dy: 0)], blocked: false) == true)
     }
 
+    @Test func screenshotsDoNotHideTagsOrLeaveTransitionMonitoringDisabled() throws {
+        let monitor = MissionControlInputMonitor()
+        var transitions = 0
+        monitor.onTransition = { transitions += 1 }
+        let event = try #require(CGEvent(source: nil))
+        @MainActor func send(_ type: CGEventType, key: Int64 = 0, flags: CGEventFlags = []) {
+            event.type = type
+            event.flags = flags
+            event.setIntegerValueField(.keyboardEventKeycode, value: key)
+            monitor.handle(type: type, event: event)
+        }
+
+        for flags: CGEventFlags in [[.maskCommand, .maskShift], [.maskCommand, .maskShift, .maskControl]] {
+            monitor.stop()
+            monitor.missionControlIsOpen = true
+            transitions = 0
+            send(.keyDown, key: 20, flags: flags) // Entire screen.
+            #expect(transitions == 0)
+            #expect(!monitor.interaction.blocksSettling(at: 0))
+            send(.keyDown, key: 21, flags: flags) // Region, after releasing the modifiers.
+            send(.leftMouseDown)
+            send(.leftMouseUp)
+            #expect(transitions == 0)
+            send(.keyDown, key: 21, flags: flags)
+            send(.keyDown, key: 49) // Space selects window capture.
+            send(.leftMouseDown)
+            send(.leftMouseUp)
+            #expect(transitions == 0)
+            send(.leftMouseDown) // Ordinary Mission Control clicks still hide immediately.
+            send(.leftMouseUp)
+            #expect(transitions == 1)
+            send(.keyDown, key: 21, flags: flags)
+            send(.keyDown, key: 53) // Cancel capture without dismissing Mission Control.
+            #expect(transitions == 1)
+            send(.keyDown, key: 53) // A subsequent Escape dismisses Mission Control normally.
+            #expect(transitions == 2)
+            send(.keyDown, key: 21, flags: flags)
+            send(.keyDown, key: 124, flags: .maskControl)
+            #expect(transitions == 3) // Actual navigation still takes priority.
+            send(.keyDown, key: 21, flags: flags)
+            monitor.missionControlIsOpen = false
+            monitor.missionControlIsOpen = true
+            send(.leftMouseDown)
+            #expect(transitions == 4) // No stale capture mode on re-entry.
+        }
+        monitor.stop()
+    }
+
     @Test func inputMonitorDecodesTransitionsAndRecoversFromDisabledTap() throws {
         // Decode synthetic events without installing a tap, requesting access, or posting input.
         let monitor = MissionControlInputMonitor()

@@ -32,7 +32,10 @@ struct MissionControlInteraction {
 @MainActor
 final class MissionControlInputMonitor {
     var onTransition: (() -> Void)?
-    var missionControlIsOpen = false
+    var missionControlIsOpen = false {
+        didSet { if !missionControlIsOpen { selectingScreenshot = false } }
+    }
+    private var selectingScreenshot = false
     private(set) var interaction = MissionControlInteraction()
     private(set) var gestureEventCount = 0
     private var tap: CFMachPort?
@@ -59,7 +62,10 @@ final class MissionControlInputMonitor {
             spaceObserver = workspaceCenter.addObserver(
                 forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.onTransition?() }
+                MainActor.assumeIsolated {
+                    self?.selectingScreenshot = false
+                    self?.onTransition?()
+                }
             }
         }
 
@@ -67,6 +73,7 @@ final class MissionControlInputMonitor {
             30, 14, // Private DockControl and system-defined (e.g. Mission Control media key).
             CGEventType.keyDown.rawValue,
             CGEventType.leftMouseDown.rawValue,
+            CGEventType.leftMouseUp.rawValue,
             CGEventType.rightMouseDown.rawValue,
             CGEventType.otherMouseDown.rawValue,
         ]
@@ -96,6 +103,7 @@ final class MissionControlInputMonitor {
     }
 
     func anticipateTransition() {
+        selectingScreenshot = false
         interaction.anticipateMotion(at: ProcessInfo.processInfo.systemUptime)
         onTransition?()
     }
@@ -123,6 +131,7 @@ final class MissionControlInputMonitor {
 
     func handle(type: CGEventType, event: CGEvent) {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            selectingScreenshot = false
             interaction = MissionControlInteraction()
             onTransition?()
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
@@ -136,6 +145,7 @@ final class MissionControlInputMonitor {
             guard hidType == 23, axis == 1 || axis == 2 else { return }
             let phase = event.getIntegerValueField(CGEventField(rawValue: 132)!)
             if interaction.receiveGesture(phase: phase) {
+                selectingScreenshot = false
                 gestureEventCount += 1
                 onTransition?()
             }
@@ -146,6 +156,20 @@ final class MissionControlInputMonitor {
         let key = event.getIntegerValueField(.keyboardEventKeycode)
         let navigationKey = type == .keyDown && (
             (event.flags.contains(.maskControl) && (123...126).contains(key)) || key == 99)
+        // ponytail: standard screenshot bindings; read symbolic hotkeys if custom bindings are needed.
+        if type == .keyDown, event.flags.contains([.maskCommand, .maskShift]), key == 20 || key == 21 {
+            selectingScreenshot = missionControlIsOpen && key == 21 // ⌘⇧4; Control also permits clipboard capture.
+            return
+        }
+        if type == .leftMouseUp {
+            selectingScreenshot = false
+            return
+        }
+        if selectingScreenshot && !navigationKey {
+            // Keep tags through selection, Space (window capture), and the capture click.
+            if type == .keyDown && key == 53 { selectingScreenshot = false } // Escape cancels capture only.
+            return
+        }
         if missionControlIsOpen || navigationKey {
             anticipateTransition()
         }
