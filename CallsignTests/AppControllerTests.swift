@@ -5,55 +5,61 @@ import Testing
 @testable import Callsign
 
 @MainActor
+@Suite(.serialized)
 struct AppControllerTests {
-    @Test func nativeToolbarTabsPreserveLabelSelectionAndColorAlignment() async throws {
+    @Test func settingsPagesPreserveControlsAndFitContent() async throws {
         let suite = "CallsignTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         let controller = AppController(defaults: defaults)
+        func page(_ page: ContentView.SettingsPage) -> some View {
+            ContentView(controller: controller, page: page).fixedSize(horizontal: false, vertical: true)
+        }
+        let host = NSHostingController(rootView: page(.general))
+        host.sizingOptions = []
+        let window = NSWindow(contentViewController: host)
+        window.setContentSize(NSSize(width: 600, height: 700))
+        window.isReleasedWhenClosed = false
+        var preferredSize: CGSize { host.sizeThatFits(in: CGSize(width: 600, height: 10_000)) }
         defer {
-            controller.settingsWindow?.close()
-            controller.settingsWindow?.unbind(.title)
-            controller.settingsWindow?.contentViewController = nil
+            window.close()
+            window.contentViewController = nil
             defaults.removePersistentDomain(forName: suite)
         }
-        controller.showSettings()
-        let window = try #require(controller.settingsWindow)
-        #expect(window.toolbarStyle == .preference)
-        let tabs = try #require(window.contentViewController as? NSTabViewController)
-        let toolbar = try #require(window.toolbar)
-        let titles = ["General", "Appearance", "About"]
-        #expect(tabs.tabStyle == .toolbar)
-        #expect(tabs.tabViewItems.map(\.label) == titles)
-        #expect(tabs.tabViewItems.compactMap { $0.identifier as? String } == titles)
-        #expect(toolbar.items.map(\.label) == titles)
-        #expect(toolbar.displayMode == .iconAndLabel)
-        #expect(toolbar.items.allSatisfy { $0.image != nil })
-        #expect(tabs.selectedTabViewItemIndex == 0)
-        #expect(window.title == "General")
-        let content = try #require(window.contentView)
-        content.layoutSubtreeIfNeeded()
+        window.makeKeyAndOrderFront(nil)
+        func settle() async throws {
+            try await Task.sleep(for: .milliseconds(100))
+            window.layoutIfNeeded()
+            host.view.layoutSubtreeIfNeeded()
+        }
+        try await settle()
         func descendants(of view: NSView) -> [NSView] {
             [view] + view.subviews.flatMap { descendants(of: $0) }
         }
-        #expect(descendants(of: content).compactMap { $0 as? NSSplitView }.isEmpty)
-        func selectTab(_ index: Int) throws -> NSView {
-            let item = toolbar.items[index]
-            let action = try #require(item.action)
-            #expect(NSApp.sendAction(action, to: item.target, from: item))
-            content.layoutSubtreeIfNeeded()
-            #expect(tabs.selectedTabViewItemIndex == index)
-            #expect(toolbar.selectedItemIdentifier == item.itemIdentifier)
-            #expect(window.title == titles[index])
-            #expect(toolbar.items.allSatisfy { $0.isVisible })
-            let pane = try #require(tabs.tabViewItems[index].viewController?.view)
-            pane.layoutSubtreeIfNeeded()
-            return pane
+        #expect(!controller.isPolling)
+        // The master switch is the topmost switch; SwiftUI owns its accessibility label.
+        let enableSwitch = try #require(descendants(of: host.view).compactMap { $0 as? NSSwitch }.max {
+            $0.convert($0.bounds, to: nil).midY < $1.convert($1.bounds, to: nil).midY
+        })
+        for enabled in [false, true] {
+            enableSwitch.state = enabled ? .on : .off
+            #expect(enableSwitch.sendAction(enableSwitch.action, to: enableSwitch.target))
+            #expect(controller.isEnabled == enabled)
+            #expect(AppController(defaults: defaults).isEnabled == enabled)
+            #expect(!controller.isPolling)
         }
-        let view = try selectTab(1)
+
+        func selectPage(_ selection: ContentView.SettingsPage) async throws -> NSView {
+            host.rootView = page(selection)
+            try await settle()
+            return host.view
+        }
+        let generalHeight = preferredSize.height
+        let view = try await selectPage(.appearance)
+        let appearanceHeight = preferredSize.height
         let picker = try #require(descendants(of: view).compactMap { $0 as? NSSegmentedControl }.first {
             $0.segmentCount == 3 && $0.label(forSegment: 0) == "App Name"
         })
-        // Exercise the actual AppKit action that used to synchronously publish during SwiftUI updates.
+        // Exercise the real segmented control action, not just the model's setter.
         for (index, label) in [(1, TagLabel.windowTitle), (2, .iconOnly), (0, .appName)] {
             let (changes, continuation) = AsyncStream<Void>.makeStream()
             withObservationTracking {
@@ -77,140 +83,120 @@ struct AppControllerTests {
         #expect(abs(first.maxX - second.maxX) < 1)
         #expect(abs(first.midY - second.midY) >= max(first.height, second.height))
 
-        for index in [0, 2] { // General and About leave the appearance controls on their own page.
-            let pane = try selectTab(index)
-            #expect(descendants(of: pane).compactMap { $0 as? NSSegmentedControl }.isEmpty)
-            #expect(descendants(of: pane).compactMap { $0 as? NSColorWell }.isEmpty)
-        }
-        let appearance = try selectTab(1)
+        let about = try await selectPage(.about)
+        let aboutHeight = preferredSize.height
+        #expect(appearanceHeight > generalHeight && generalHeight > aboutHeight)
+        #expect(abs(preferredSize.width - 600) < 1)
+        #expect(descendants(of: about).compactMap { $0 as? NSColorWell }.isEmpty)
+        let general = try await selectPage(.general)
+        #expect(descendants(of: general).compactMap { $0 as? NSSegmentedControl }.isEmpty)
+        #expect(descendants(of: general).compactMap { $0 as? NSColorWell }.isEmpty)
+        #expect(abs(preferredSize.height - generalHeight) < 1)
+        let appearance = try await selectPage(.appearance)
         #expect(descendants(of: appearance).compactMap { $0 as? NSSegmentedControl }.count == 1)
         #expect(controller.configuration.label == .appName)
-        window.close()
-        controller.showSettings()
-        #expect(controller.settingsWindow === window)
-        #expect(window.toolbar === toolbar)
-        #expect(window.title == "Appearance")
-        #expect(tabs.selectedTabViewItemIndex == 1)
+        #expect(abs(preferredSize.height - appearanceHeight) < 1)
         #expect(!controller.isPolling)
     }
 
-    @Test func settingsHeightsFitContentAndHandleInterruptedAndDynamicResizes() async throws {
-        let suite = "CallsignTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        let controller = AppController(defaults: defaults)
+    @Test func nativeSettingsSceneAnimatesTabResizing() async throws {
+        // Native window animations must be exercised in the real SwiftUI scene, not an NSHostingController.
+        let previousOpened = UserDefaults.standard.object(forKey: "app.hasOpenedSettings")
         defer {
-            controller.settingsWindow?.close()
-            controller.settingsWindow?.unbind(.title)
-            controller.settingsWindow?.contentViewController = nil
-            defaults.removePersistentDomain(forName: suite)
+            if let previousOpened { UserDefaults.standard.set(previousOpened, forKey: "app.hasOpenedSettings") }
+            else { UserDefaults.standard.removeObject(forKey: "app.hasOpenedSettings") }
         }
-        controller.showSettings()
-        let window = try #require(controller.settingsWindow)
-        let tabs = try #require(window.contentViewController as? SettingsTabViewController)
-        let screen = try #require(window.screen)
-        #expect(!window.styleMask.contains(.resizable))
-        window.setFrameTopLeftPoint(NSPoint(x: window.frame.minX, y: screen.visibleFrame.maxY - 20))
-        let top = window.frame.maxY
-        func settle() async throws -> CGFloat {
-            var previous = NSRect.null
-            var expectedHeight: CGFloat = 0
-            for _ in 0..<125 {
+        let menu = try #require(NSApp.mainMenu?.items.first?.submenu)
+        let command = try #require(menu.items.first { $0.keyEquivalent == "," })
+        let action = try #require(command.action)
+        #expect(NSApp.sendAction(action, to: command.target, from: command))
+        try await Task.sleep(for: .milliseconds(500))
+        let titles = ["General", "Appearance", "About"]
+        let window = try #require(NSApp.windows.first { $0.toolbar?.items.map(\.label) == titles })
+        defer { window.close() }
+        let toolbar = try #require(window.toolbar)
+        func select(_ title: String) throws {
+            let item = try #require(toolbar.items.first { $0.label == title })
+            let action = try #require(item.action)
+            #expect(NSApp.sendAction(action, to: item.target, from: item))
+        }
+        var settledHeights: [String: CGFloat] = [:]
+        for title in titles {
+            let before = window.frame.height
+            try select(title)
+            var heights = [CGFloat]()
+            for _ in 0..<60 {
                 try await Task.sleep(for: .milliseconds(16))
-                window.layoutIfNeeded()
-                let size = tabs.tabView.selectedTabViewItem!.viewController!.preferredContentSize
-                expectedHeight = min(ceil(window.frameRect(forContentRect: NSRect(origin: .zero, size: size)).height),
-                                     screen.visibleFrame.height - 40)
-                if !tabs.view.isHidden && window.frame == previous && abs(window.frame.height - expectedHeight) < 1 { break }
-                previous = window.frame
+                heights.append(window.frame.height)
             }
-            #expect(!tabs.view.isHidden)
-            #expect(abs(window.frame.height - expectedHeight) < 1)
-            #expect(abs(window.frame.maxY - top) < 1)
+            #expect(window.title == title)
             #expect(abs(window.frame.width - 600) < 1)
-            #expect(window.frame.height <= screen.visibleFrame.height - 40)
-            #expect(window.toolbar?.items.allSatisfy { $0.isVisible } == true)
-            return window.frame.height
+            let after = window.frame.height
+            settledHeights[title] = after
+            if abs(after - before) > 1 {
+                let animated = heights.contains { $0 > min(before, after) + 1 && $0 < max(before, after) - 1 }
+                #expect(animated == !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+            }
         }
-        var heights = [CGFloat]()
-        for index in 0..<3 {
-            tabs.selectedTabViewItemIndex = index
-            heights.append(try await settle())
-            let pane = try #require(tabs.tabViewItems[index].viewController)
-            let expected = window.frameRect(forContentRect: NSRect(origin: .zero, size: pane.preferredContentSize))
-            #expect(abs(window.frame.height - min(ceil(expected.height), screen.visibleFrame.height - 40)) < 1)
-        }
-        #expect(heights[1] > heights[0] && heights[0] > heights[2])
-        for index in [0, 1, 2, 0, 1, 0] { tabs.selectedTabViewItemIndex = index }
-        #expect(abs((try await settle()) - heights[0]) < 1)
-        tabs.selectedTabViewItemIndex = 1
-        window.close() // Reopening during an animation must cancel it and reveal the retained pane.
-        controller.showSettings()
-        #expect(controller.settingsWindow === window)
-        #expect(tabs.selectedTabViewItemIndex == 1)
-        let reopenedHeight = try await settle()
-        #expect(abs(reopenedHeight - heights[1]) < 1, "Reopened height \(reopenedHeight), original heights \(heights), preferred \(tabs.tabViewItems[1].viewController!.preferredContentSize)")
 
-        func form(rows: Int) -> some View {
-            Form { Section { ForEach(0..<rows, id: \.self) { Text("Setting \($0)") } } }
-                .formStyle(.grouped).frame(width: 600)
+        // Interrupt resizing; only the last request may win.
+        for title in ["General", "Appearance", "About", "General"] {
+            try select(title)
+            try await Task.sleep(for: .milliseconds(20))
         }
-        let pane = NSHostingController(rootView: form(rows: 2))
-        pane.sizingOptions = .preferredContentSize
-        let item = NSTabViewItem(identifier: "Sizing")
-        item.label = "Sizing"
-        item.image = NSImage(systemSymbolName: "arrow.up.and.down", accessibilityDescription: "Sizing")
-        item.viewController = pane
-        tabs.addTabViewItem(item)
-        tabs.selectedTabViewItemIndex = 3
-        let shortHeight = try await settle()
-        pane.rootView = form(rows: 8) // Content changes within a tab, such as a permission notice disappearing.
-        let tallerHeight = try await settle()
-        #expect(tallerHeight > shortHeight)
-        pane.rootView = form(rows: 200)
-        let cappedHeight = try await settle()
-        #expect(abs(cappedHeight - (screen.visibleFrame.height - 40)) < 1)
-        #expect(pane.preferredContentSize.height > window.contentLayoutRect.height)
-        pane.rootView = form(rows: 2)
-        #expect(abs((try await settle()) - shortHeight) < 1)
-        tabs.selectedTabViewItemIndex = 0
-        tabs.resizeToSelectedPane(animated: false)
-        #expect(!tabs.view.isHidden) // The same immediate path is used when Reduce Motion is enabled.
-        #expect(abs((try await settle()) - heights[0]) < 1)
-        #expect(!controller.isPolling)
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(window.title == "General")
+        let generalHeight = try #require(settledHeights["General"])
+        #expect(abs(window.frame.height - generalHeight) <= 1)
+
+        try select("Appearance")
+        window.close()
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(NSApp.sendAction(action, to: command.target, from: command))
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(window.isVisible)
+        try select("Appearance")
+        try await Task.sleep(for: .milliseconds(600))
+        #expect(window.title == "Appearance")
+        let appearanceHeight = try #require(settledHeights["Appearance"])
+        #expect(abs(window.frame.height - appearanceHeight) <= 1)
     }
 
-    @Test func settingsLifetimeDoesNotControlTheEngineAndPauseStopsIt() throws {
+    @Test func settingsRequestsDoNotControlTheEngineAndPauseStopsIt() throws {
         let suite = "CallsignTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         let controller = AppController(defaults: defaults)
         defer {
             controller.stop()
-            controller.settingsWindow?.close()
-            controller.settingsWindow?.unbind(.title)
-            controller.settingsWindow?.contentViewController = nil
             defaults.removePersistentDomain(forName: suite)
         }
         #expect(controller.isEnabled)
         #expect(!controller.showInDock)
         #expect(!controller.isPolling)
         #expect(!controller.hasOpenedSettings)
+        #expect(controller.settingsRequest == 0)
+
+        controller.showSettings()
+        #expect(controller.settingsRequest == 1)
+        #expect(!controller.hasOpenedSettings) // A request alone does not complete onboarding.
+        #expect(!controller.isPolling)
+        controller.settingsDidAppear()
+        #expect(controller.hasOpenedSettings)
+        #expect(AppController(defaults: defaults).hasOpenedSettings)
+        #expect(!controller.isPolling)
 
         controller.start()
         controller.start() // Repeated startup must not create a second polling loop.
         #expect(controller.isPolling)
         let probe = controller.probe
         controller.showSettings()
-        let window = try #require(controller.settingsWindow)
-        #expect(controller.hasOpenedSettings)
-        window.close()
+        #expect(controller.settingsRequest == 2)
         #expect(controller.isPolling)
-        controller.showSettings()
-        #expect(controller.settingsWindow === window)
         #expect(controller.probe === probe)
         probe.recordDiagnostics = true
         #expect(controller.isPolling)
         probe.recordDiagnostics = false
-        #expect(controller.isPolling) // Recording does not own or pause the tag engine.
+        #expect(controller.isPolling)
         #expect(!AppController(defaults: defaults).probe.recordDiagnostics)
 
         controller.configuration.label = .windowTitle

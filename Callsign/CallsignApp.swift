@@ -4,9 +4,10 @@ import SwiftUI
 @main
 struct CallsignApp: App {
     @NSApplicationDelegateAdaptor(CallsignAppDelegate.self) private var delegate
+    @Environment(\.openSettings) private var openSettings
 
     var body: some Scene {
-        MenuBarExtra("Callsign", systemImage: "tag") {
+        MenuBarExtra("Callsign", systemImage: delegate.controller.isEnabled ? "tag" : "tag.slash") {
             CallsignMenu(controller: delegate.controller)
         }
         .commands {
@@ -14,11 +15,19 @@ struct CallsignApp: App {
                 Button("Close Window") { NSApp.keyWindow?.performClose(nil) }
                     .keyboardShortcut("w")
             }
-            CommandGroup(replacing: .appSettings) {
-                Button("Settings…", action: delegate.controller.showSettings)
-                    .keyboardShortcut(",")
-            }
             CommandGroup(replacing: .help) {}
+        }
+
+        Settings {
+            SettingsView(controller: delegate.controller)
+        }
+        .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
+        .onChange(of: delegate.controller.settingsRequest, initial: true) {
+            guard delegate.controller.settingsRequest > 0 else { return }
+            NSApp.activate()
+            openSettings()
         }
     }
 }
@@ -50,10 +59,12 @@ final class CallsignAppDelegate: NSObject, NSApplicationDelegate {
 }
 
 private struct CallsignMenu: View {
-    @Bindable var controller: AppController
+    let controller: AppController
 
     var body: some View {
-        Toggle("Enable Callsign", isOn: $controller.isEnabled)
+        Button(controller.isEnabled ? "Pause Callsign" : "Resume Callsign") {
+            controller.isEnabled.toggle()
+        }
         Button("Settings…", action: controller.showSettings)
             .keyboardShortcut(",")
         Divider()

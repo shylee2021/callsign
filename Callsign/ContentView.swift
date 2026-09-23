@@ -2,6 +2,58 @@ import AppKit
 import ServiceManagement
 import SwiftUI
 
+struct SettingsView: View {
+    let controller: AppController
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var selection: ContentView.SettingsPage = .general
+    @State private var transitioning = false
+    @State private var transitionGeneration = 0
+
+    var body: some View {
+        TabView(selection: Binding(get: { selection }, set: selectPage)) {
+            Tab("General", systemImage: "gearshape", value: .general) {
+                ContentView(controller: controller, page: .general)
+            }
+            Tab("Appearance", systemImage: "paintpalette", value: .appearance) {
+                ContentView(controller: controller, page: .appearance)
+            }
+            Tab("About", systemImage: "info.circle", value: .about) {
+                ContentView(controller: controller, page: .about)
+            }
+        }
+        .frame(width: 600)
+        // Use each selected pane's ideal height instead of the window's default height.
+        // ponytail: no screen-height cap; add one if panes outgrow smaller displays.
+        .fixedSize(horizontal: false, vertical: true)
+        .windowResizeAnchor(.topLeading)
+        // Opacity preserves the pane's layout while the native window resizes.
+        .animation(nil) { content in
+            content.opacity(transitioning ? 0 : 1)
+        }
+        .allowsHitTesting(!transitioning)
+        .accessibilityHidden(transitioning)
+        .onAppear(perform: controller.settingsDidAppear)
+        .onDisappear {
+            transitionGeneration += 1
+            transitioning = false
+        }
+    }
+
+    private func selectPage(_ page: ContentView.SettingsPage) {
+        guard page != selection || transitioning else { return }
+        transitionGeneration += 1
+        let generation = transitionGeneration
+        transitioning = !reduceMotion
+        withAnimation(reduceMotion ? nil : .linear(duration: 0.2), completionCriteria: .removed) {
+            selection = page
+        } completion: {
+            // A superseded transition must not reveal content during a newer resize.
+            guard generation == transitionGeneration else { return }
+            transitioning = false
+        }
+    }
+}
+
 struct ContentView: View {
     @Bindable var controller: AppController
     let page: SettingsPage
@@ -93,6 +145,10 @@ struct ContentView: View {
 
     private var generalSettings: some View {
         Form {
+            Section {
+                Toggle("Enable Callsign", isOn: $controller.isEnabled)
+                    .toggleStyle(.switch)
+            }
             Section {
                 Toggle("Launch at login", isOn: Binding(
                     get: { controller.launchAtLogin }, set: controller.setLaunchAtLogin))
