@@ -8,8 +8,14 @@ import Darwin
 import os
 import SwiftUI
 
+// The probe's view of the overlays, so tests can record badges without opening panels.
+protocol BadgeSink {
+    func show(_ badges: [AppBadge], configuration: TagConfiguration, animated: Bool)
+    func hide()
+}
+
 @MainActor
-final class OverlayManager {
+final class OverlayManager: BadgeSink {
     private(set) var panels: [CGWindowID: BadgePanel] = [:]
     private var liquidGlass = false
     private var space: OverlaySpace?

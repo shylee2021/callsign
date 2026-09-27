@@ -89,40 +89,88 @@ struct AppBadge {
     let thumbnailFrame: CGRect
 }
 
+// Entry and later transitions behave the same: badges stay hidden until frames settle.
 private enum MissionControlPhase {
-    case normal, entering, active, transitioning
+    case closed, settling, active
+}
+
+enum ProbeStatus: Equatable {
+    case accessibilityRequired
+    case promptShown
+    case paused
+    case ready
+    case closed
+    case entering
+    case waitingForFrames
+    case transitioning
+    case active(labeled: Int, total: Int, source: String, settledMilliseconds: Int?)
+
+    var text: String {
+        switch self {
+        case .accessibilityRequired: "Accessibility access is required."
+        case .promptShown: "Enable Callsign in System Settings, then return here."
+        case .paused: "Callsign is paused."
+        case .ready: "Ready. Open Mission Control."
+        case .closed: "Mission Control closed."
+        case .entering: "Mission Control entering…"
+        case .waitingForFrames: "Mission Control: waiting for thumbnail frames…"
+        case .transitioning: "Mission Control transitioning. Tags hidden…"
+        case let .active(labeled, total, source, settledMilliseconds):
+            "Mission Control active. Labeled \(labeled) of \(total) windows (\(source))."
+                + (settledMilliseconds.map { " Settled after ~\($0) ms." } ?? "")
+        }
+    }
 }
 
 @MainActor
 @Observable
 final class MissionControlProbe {
-    private(set) var isTrusted = AXIsProcessTrusted()
-    private(set) var status = "Accessibility access is required."
+    private(set) var isTrusted: Bool
+    private(set) var status = ProbeStatus.accessibilityRequired
     let diagnostics = DiagnosticsRecorder()
 
     // Polling bookkeeping changes up to ~30 times a second; views observe only the state above.
-    private let overlays = OverlayManager()
-    private let apps = AppIdentityCache()
-    private let titles = WindowTitleCache()
-    private let source = defaultThumbnailSource()
-    private let locator = MissionControlLocator()
+    private let source: any ThumbnailSource
+    private let titles: WindowTitleCache
+    private let apps: AppIdentityCache
+    private let overlays: any BadgeSink
+    private let windowList: @MainActor () -> [WindowInfo]
+    private let locateMissionControl: @MainActor () -> (AXUIElement, pid_t)?
+    private let isProcessTrusted: @MainActor () -> Bool
     private let workspaceCenter = NSWorkspace.shared.notificationCenter
     @ObservationIgnored private var spaceObserver: NSObjectProtocol?
-    @ObservationIgnored private var phase = MissionControlPhase.normal
+    @ObservationIgnored private var phase = MissionControlPhase.closed
     @ObservationIgnored private var stability = ThumbnailStability()
     @ObservationIgnored private var settleStartedAt = 0.0
     @ObservationIgnored private var settleSignpost: OSSignpostIntervalState?
     @ObservationIgnored private var settledMilliseconds: Int?
     @ObservationIgnored private var lastBadgeSync = 0.0
 
-    init() {
+    // Defaults are the live system; tests substitute scripted Mission Control frames.
+    init(
+        source: any ThumbnailSource = defaultThumbnailSource(),
+        titles: WindowTitleCache? = nil,
+        apps: AppIdentityCache = AppIdentityCache(),
+        overlays: any BadgeSink = OverlayManager(),
+        windowList: @escaping @MainActor () -> [WindowInfo] = WindowList.onScreen,
+        locateMissionControl: (@MainActor () -> (AXUIElement, pid_t)?)? = nil,
+        isProcessTrusted: @escaping @MainActor () -> Bool = { AXIsProcessTrusted() }
+    ) {
+        self.source = source
+        self.titles = titles ?? WindowTitleCache(windowList: windowList)
+        self.apps = apps
+        self.overlays = overlays
+        self.windowList = windowList
+        self.locateMissionControl = locateMissionControl ?? MissionControlLocator().currentMissionControl
+        self.isProcessTrusted = isProcessTrusted
+        isTrusted = isProcessTrusted()
         Accessibility.boundMessagingTimeout()
-        titles.onTitlesArrived = { [weak self] in self?.lastBadgeSync = 0 }
+        self.titles.onTitlesArrived = { [weak self] in self?.lastBadgeSync = 0 }
         spaceObserver = workspaceCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, self.phase != .normal else { return }
+                guard let self, self.phase != .closed else { return }
                 self.stability.invalidate()
                 self.suspendBadges()
             }
@@ -136,13 +184,13 @@ final class MissionControlProbe {
     func requestAccess() {
         let prompt = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         _ = AXIsProcessTrustedWithOptions([prompt: true] as CFDictionary)
-        status = "Enable Callsign in System Settings, then return here."
+        status = .promptShown
     }
 
     func stop() {
         titles.clear()
         resetMissionControl()
-        status = "Callsign is paused."
+        status = .paused
     }
 
     // Milliseconds. Closed or settled, entry and swipes are still caught within one idle poll.
@@ -157,7 +205,7 @@ final class MissionControlProbe {
 
     // Returns the delay in milliseconds before the app should poll again.
     func poll(configuration: TagConfiguration) -> Int {
-        let trusted = AXIsProcessTrusted()
+        let trusted = isProcessTrusted()
         if trusted != isTrusted {
             Log.detection.notice("Accessibility trust changed: \(trusted, privacy: .public)")
         }
@@ -167,11 +215,11 @@ final class MissionControlProbe {
         }
         guard trusted else {
             resetMissionControl()
-            status = "Accessibility access is required."
+            status = .accessibilityRequired
             return 500
         }
-        guard let (missionControl, dockPID) = locator.currentMissionControl() else {
-            let wasRunning = phase != .normal
+        guard let (missionControl, dockPID) = locateMissionControl() else {
+            let wasRunning = phase != .closed
             if wasRunning {
                 resetMissionControl()
             }
@@ -179,23 +227,21 @@ final class MissionControlProbe {
                 // Warm titles before entry; the refresh throttles WindowServer and AX reads to 1 Hz.
                 titles.refresh()
             }
-            status = wasRunning
-                ? "Mission Control closed."
-                : "Ready. Open Mission Control."
+            status = wasRunning ? .closed : .ready
             return Self.pollDelay(missionControlOpen: false, settled: false, awaitingTitles: false)
         }
 
-        if phase == .normal {
+        if phase == .closed {
             resetMissionControl()
             // Refresh renamed windows during entry without discarding already-known titles.
             titles.markStale()
-            phase = .entering
+            phase = .settling
             settleStartedAt = ProcessInfo.processInfo.systemUptime
             beginSettleInterval()
-            status = "Mission Control entering…"
+            status = .entering
         }
 
-        let windows = WindowList.onScreen()
+        let windows = windowList()
         if source.usesWindowTitles, configuration.label == .windowTitle {
             titles.refresh(for: windows)
         }
@@ -207,9 +253,7 @@ final class MissionControlProbe {
         if !settled {
             suspendBadges()
             settledMilliseconds = nil
-            status = thumbnails.isEmpty
-                ? "Mission Control: waiting for thumbnail frames…"
-                : "Mission Control transitioning. Tags hidden…"
+            status = thumbnails.isEmpty ? .waitingForFrames : .transitioning
             return Self.pollDelay(missionControlOpen: true, settled: false, awaitingTitles: false)
         }
         let shouldFadeIn = phase != .active
@@ -244,10 +288,11 @@ final class MissionControlProbe {
             badges,
             configuration: configuration,
             animated: shouldFadeIn)
-        status = "Mission Control active. Labeled \(badges.count) of \(thumbnails.count) windows (\(source.name))."
-        if let elapsed = settledMilliseconds {
-            status += " Settled after ~\(elapsed) ms."
-        }
+        status = .active(
+            labeled: badges.count,
+            total: thumbnails.count,
+            source: source.name,
+            settledMilliseconds: settledMilliseconds)
 
         diagnostics.scheduleReport { [weak self] in
             guard let self else { return "" }
@@ -265,17 +310,17 @@ final class MissionControlProbe {
         overlays.hide()
         lastBadgeSync = 0
         if phase == .active {
-            phase = .transitioning
+            phase = .settling
             settleStartedAt = ProcessInfo.processInfo.systemUptime
             beginSettleInterval()
             settledMilliseconds = nil
             diagnostics.cancel()
-            status = "Mission Control transitioning. Tags hidden…"
+            status = .transitioning
         }
     }
 
     private func resetMissionControl() {
-        phase = .normal
+        phase = .closed
         stability = ThumbnailStability()
         settleStartedAt = 0
         endSettleInterval(settled: false)

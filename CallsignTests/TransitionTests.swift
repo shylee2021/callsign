@@ -78,7 +78,7 @@ struct TransitionTests {
             probe.stop()
             NSWorkspace.shared.notificationCenter.post(
                 name: NSWorkspace.activeSpaceDidChangeNotification, object: NSWorkspace.shared)
-            #expect(probe.status == "Callsign is paused.")
+            #expect(probe.status == .paused)
         }
         #expect(released == nil)
     }

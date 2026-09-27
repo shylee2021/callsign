@@ -320,7 +320,7 @@ private struct TroubleshootingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Troubleshooting").font(.title2.bold())
-            Text(probe.status)
+            Text(probe.status.text)
             Text("Reports include app names and window titles. Review them before sharing.")
                 .font(.callout).foregroundStyle(.secondary)
             ScrollView {

@@ -221,7 +221,7 @@ struct AppControllerTests {
         #expect(TagConfiguration.load(from: defaults).label == .windowTitle)
         controller.isEnabled = false
         #expect(!controller.isPolling)
-        #expect(controller.probe.status == "Callsign is paused.")
+        #expect(controller.probe.status == .paused)
         #expect(!AppController(defaults: defaults).isEnabled)
 
         controller.isEnabled = true
