@@ -281,7 +281,7 @@ private struct TagPreview: View {
 }
 
 private struct AccessibilityNotice: View {
-    @ObservedObject var probe: MissionControlProbe
+    let probe: MissionControlProbe
 
     var body: some View {
         if !probe.isTrusted {
@@ -297,7 +297,7 @@ private struct AccessibilityNotice: View {
 }
 
 private struct DiagnosticsControls: View {
-    @ObservedObject var probe: MissionControlProbe
+    @Bindable var probe: MissionControlProbe
     let showReport: () -> Void
 
     var body: some View {
@@ -314,7 +314,7 @@ private struct DiagnosticsControls: View {
 }
 
 private struct TroubleshootingView: View {
-    @ObservedObject var probe: MissionControlProbe
+    let probe: MissionControlProbe
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {

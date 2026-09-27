@@ -5,8 +5,8 @@
 
 import ApplicationServices
 import AppKit
-import Combine
 import Darwin
+import Observation
 
 struct Thumbnail {
     let windowID: CGWindowID?
@@ -121,32 +121,34 @@ private enum MissionControlPhase {
 // macOS 26 uses Dock AX thumbnails; macOS 27+ uses WindowServer frames.
 // On macOS 27, remote titles come from AX; our own titles come directly from AppKit.
 @MainActor
-final class MissionControlProbe: ObservableObject {
-    @Published private(set) var isTrusted = AXIsProcessTrusted()
-    @Published private(set) var status = "Accessibility access is required."
-    @Published private(set) var report = ""
+@Observable
+final class MissionControlProbe {
+    private(set) var isTrusted = AXIsProcessTrusted()
+    private(set) var status = "Accessibility access is required."
+    private(set) var report = ""
     // Session-only: never save diagnostic recording in preferences.
-    @Published var recordDiagnostics = false {
+    var recordDiagnostics = false {
         didSet {
             if !recordDiagnostics { cancelReport() }
         }
     }
 
+    // Polling bookkeeping changes ~30 times a second; views observe only the state above.
     private let overlays = OverlayManager()
     private let workspaceCenter = NSWorkspace.shared.notificationCenter
-    private var spaceObserver: NSObjectProtocol?
-    private var terminateObserver: NSObjectProtocol?
-    private var phase = MissionControlPhase.normal
-    private var stability = ThumbnailStability()
-    private var settleStartedAt = 0.0
-    private var settledMilliseconds: Int?
-    private var reportTask: Task<Void, Never>?
-    private var lastBadgeSync = 0.0
-    private var appCache: [pid_t: AppIdentity] = [:]
-    private var windowTitles: [pid_t: [CGWindowID: String]] = [:]
-    private var titleTask: Task<Void, Never>?
-    private var lastTitleSync = -Double.infinity
-    private var requestedTitleIDs: Set<CGWindowID> = []
+    @ObservationIgnored private var spaceObserver: NSObjectProtocol?
+    @ObservationIgnored private var terminateObserver: NSObjectProtocol?
+    @ObservationIgnored private var phase = MissionControlPhase.normal
+    @ObservationIgnored private var stability = ThumbnailStability()
+    @ObservationIgnored private var settleStartedAt = 0.0
+    @ObservationIgnored private var settledMilliseconds: Int?
+    @ObservationIgnored private var reportTask: Task<Void, Never>?
+    @ObservationIgnored private var lastBadgeSync = 0.0
+    @ObservationIgnored private var appCache: [pid_t: AppIdentity] = [:]
+    @ObservationIgnored private var windowTitles: [pid_t: [CGWindowID: String]] = [:]
+    @ObservationIgnored private var titleTask: Task<Void, Never>?
+    @ObservationIgnored private var lastTitleSync = -Double.infinity
+    @ObservationIgnored private var requestedTitleIDs: Set<CGWindowID> = []
 
     init() {
         // A per-element timeout covers only that element, so bound every AX read, including Dock children.
@@ -205,9 +207,7 @@ final class MissionControlProbe: ObservableObject {
     // Returns the delay in milliseconds before the app should poll again.
     func poll(configuration: TagConfiguration) -> Int {
         let trusted = AXIsProcessTrusted()
-        if trusted != isTrusted {
-            isTrusted = trusted
-        }
+        isTrusted = trusted
         if !trusted || configuration.label != .windowTitle {
             clearWindowTitles()
         }
