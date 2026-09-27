@@ -3,7 +3,7 @@
 //  Callsign
 //
 
-import ApplicationServices
+@preconcurrency import ApplicationServices
 import AppKit
 import Darwin
 import Observation
