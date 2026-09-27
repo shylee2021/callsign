@@ -89,11 +89,6 @@ struct AppBadge {
     let thumbnailFrame: CGRect
 }
 
-private struct AppIdentity {
-    let name: String
-    let icon: NSImage
-}
-
 private enum MissionControlPhase {
     case normal, entering, active, transitioning
 }
@@ -110,6 +105,7 @@ final class MissionControlProbe {
 
     // Polling bookkeeping changes up to ~30 times a second; views observe only the state above.
     private let overlays = OverlayManager()
+    private let apps = AppIdentityCache()
     private let workspaceCenter = NSWorkspace.shared.notificationCenter
     @ObservationIgnored private var spaceObserver: NSObjectProtocol?
     @ObservationIgnored private var terminateObserver: NSObjectProtocol?
@@ -119,7 +115,6 @@ final class MissionControlProbe {
     @ObservationIgnored private var settleSignpost: OSSignpostIntervalState?
     @ObservationIgnored private var settledMilliseconds: Int?
     @ObservationIgnored private var lastBadgeSync = 0.0
-    @ObservationIgnored private var appCache: [pid_t: AppIdentity] = [:]
     @ObservationIgnored private var dock: (element: AXUIElement, pid: pid_t)?
     @ObservationIgnored private var windowTitles: [pid_t: [CGWindowID: String]] = [:]
     @ObservationIgnored private var titleTask: Task<Void, Never>?
@@ -140,12 +135,9 @@ final class MissionControlProbe {
         terminateObserver = workspaceCenter.addObserver(
             forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
         ) { [weak self] note in
-            // PIDs are recycled, so a quit app's identity must not outlive it.
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-            let pid = app.processIdentifier
             let bundleIdentifier = app.bundleIdentifier
             MainActor.assumeIsolated {
-                self?.appCache[pid] = nil
                 // A relaunched Dock gets a new PID and AX element.
                 if bundleIdentifier == Self.dockBundleIdentifier { self?.dock = nil }
             }
@@ -270,7 +262,7 @@ final class MissionControlProbe {
                !window.hasWindowTitleResult(in: windowTitles) {
                 return nil
             }
-            let identity = appIdentity(for: window)
+            let identity = apps.identity(for: window)
             return AppBadge(
                 windowID: window.id,
                 pid: window.pid,
@@ -357,18 +349,6 @@ final class MissionControlProbe {
         guard let settleSignpost else { return }
         Log.signposter.endInterval("Settle", settleSignpost, "\(settled ? "settled" : "abandoned", privacy: .public)")
         self.settleSignpost = nil
-    }
-
-    private func appIdentity(for window: WindowInfo) -> AppIdentity {
-        if let cached = appCache[window.pid] { return cached }
-        let app = NSRunningApplication(processIdentifier: window.pid)
-        let identity = AppIdentity(
-            name: app?.localizedName ?? window.owner,
-            icon: app?.icon ?? NSImage(
-                systemSymbolName: "app.fill",
-                accessibilityDescription: window.owner) ?? NSImage(size: NSSize(width: 32, height: 32)))
-        appCache[window.pid] = identity
-        return identity
     }
 
     private func missionControlThumbnails(in group: AXUIElement) -> [Thumbnail] {
