@@ -164,7 +164,7 @@ struct ContentView: View {
                     .help("Also makes Callsign available in Command-Tab. The menu-bar icon stays available.")
             }
             AccessibilityNotice(probe: controller.probe)
-            DiagnosticsControls(probe: controller.probe) { showsTroubleshooting = true }
+            DiagnosticsControls(diagnostics: controller.probe.diagnostics) { showsTroubleshooting = true }
         }
         .formStyle(.grouped)
     }
@@ -297,12 +297,12 @@ private struct AccessibilityNotice: View {
 }
 
 private struct DiagnosticsControls: View {
-    @Bindable var probe: MissionControlProbe
+    @Bindable var diagnostics: DiagnosticsRecorder
     let showReport: () -> Void
 
     var body: some View {
         Section {
-            Toggle("Record diagnostics", isOn: $probe.recordDiagnostics)
+            Toggle("Record diagnostics", isOn: $diagnostics.recordDiagnostics)
             Button("View diagnostic report…", action: showReport)
         } header: {
             Text("Diagnostics")
@@ -324,17 +324,17 @@ private struct TroubleshootingView: View {
             Text("Reports include app names and window titles. Review them before sharing.")
                 .font(.callout).foregroundStyle(.secondary)
             ScrollView {
-                Text(probe.report.isEmpty
-                     ? (probe.recordDiagnostics
+                Text(probe.diagnostics.report.isEmpty
+                     ? (probe.diagnostics.recordDiagnostics
                         ? "Open Mission Control to capture a diagnostic report."
                         : "Turn on Record diagnostics in General, then open Mission Control.")
-                     : probe.report)
+                     : probe.diagnostics.report)
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             HStack {
-                Button("Copy Report", action: probe.copyReport).disabled(probe.report.isEmpty)
+                Button("Copy Report", action: probe.diagnostics.copyReport).disabled(probe.diagnostics.report.isEmpty)
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }

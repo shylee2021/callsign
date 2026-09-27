@@ -211,11 +211,11 @@ struct AppControllerTests {
         #expect(controller.settingsRequest == 2)
         #expect(controller.isPolling)
         #expect(controller.probe === probe)
-        probe.recordDiagnostics = true
+        probe.diagnostics.recordDiagnostics = true
         #expect(controller.isPolling)
-        probe.recordDiagnostics = false
+        probe.diagnostics.recordDiagnostics = false
         #expect(controller.isPolling)
-        #expect(!AppController(defaults: defaults).probe.recordDiagnostics)
+        #expect(!AppController(defaults: defaults).probe.diagnostics.recordDiagnostics)
 
         controller.configuration.label = .windowTitle
         #expect(TagConfiguration.load(from: defaults).label == .windowTitle)

@@ -5,42 +5,43 @@ import Testing
 struct DiagnosticsTests {
     @Test func recordingIsOptInCancelsPendingWorkAndKeepsTheLastReport() async throws {
         let probe = MissionControlProbe()
+        let diagnostics = probe.diagnostics
         var captures = 0
         let capture: @MainActor () -> String = {
             captures += 1
             return "Report \(captures)"
         }
-        #expect(!probe.recordDiagnostics)
-        #expect(probe.scheduleReport(capture) == nil)
+        #expect(!diagnostics.recordDiagnostics)
+        #expect(diagnostics.scheduleReport(capture) == nil)
         #expect(captures == 0)
 
-        probe.recordDiagnostics = true
-        let canceled = try #require(probe.scheduleReport(capture))
-        probe.recordDiagnostics = false
+        diagnostics.recordDiagnostics = true
+        let canceled = try #require(diagnostics.scheduleReport(capture))
+        diagnostics.recordDiagnostics = false
         await canceled.value
         #expect(captures == 0)
-        #expect(probe.report.isEmpty)
+        #expect(diagnostics.report.isEmpty)
 
-        probe.recordDiagnostics = true
-        let completed = try #require(probe.scheduleReport(capture))
+        diagnostics.recordDiagnostics = true
+        let completed = try #require(diagnostics.scheduleReport(capture))
         await completed.value
         #expect(captures == 1)
-        #expect(probe.report.hasSuffix("Report 1"))
-        let duplicate = try #require(probe.scheduleReport(capture))
+        #expect(diagnostics.report.hasSuffix("Report 1"))
+        let duplicate = try #require(diagnostics.scheduleReport(capture))
         await duplicate.value
         #expect(captures == 1) // One capture per settled layout, not every poll.
 
-        let savedReport = probe.report
-        probe.recordDiagnostics = false
-        #expect(probe.report == savedReport) // Stop recording, then review/copy the last capture.
-        #expect(probe.scheduleReport(capture) == nil)
-        probe.recordDiagnostics = true
-        let paused = try #require(probe.scheduleReport(capture))
+        let savedReport = diagnostics.report
+        diagnostics.recordDiagnostics = false
+        #expect(diagnostics.report == savedReport) // Stop recording, then review/copy the last capture.
+        #expect(diagnostics.scheduleReport(capture) == nil)
+        diagnostics.recordDiagnostics = true
+        let paused = try #require(diagnostics.scheduleReport(capture))
         probe.stop()
         await paused.value
         #expect(captures == 1)
-        #expect(probe.report == savedReport)
-        #expect(!MissionControlProbe().recordDiagnostics) // A fresh session never inherits recording.
+        #expect(diagnostics.report == savedReport)
+        #expect(!MissionControlProbe().diagnostics.recordDiagnostics) // A fresh session never inherits recording.
     }
 
     @Test func privateSymbolsResolveOnThisMacOS() {
