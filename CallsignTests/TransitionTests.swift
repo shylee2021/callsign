@@ -50,6 +50,26 @@ struct TransitionTests {
         #expect(stability.update(frames: [thumbnail.offsetBy(dx: 1.5, dy: 0)]) == true)
     }
 
+    @Test func pollingSlowsWhileClosedOrSettled() {
+        #expect(MissionControlProbe.pollDelay(missionControlOpen: false, settled: false, awaitingTitles: false) == 100)
+        #expect(MissionControlProbe.pollDelay(missionControlOpen: true, settled: false, awaitingTitles: false) == 33)
+        #expect(MissionControlProbe.pollDelay(missionControlOpen: true, settled: true, awaitingTitles: false) == 100)
+        // A title read in flight keeps polls fast so the late title appears promptly.
+        #expect(MissionControlProbe.pollDelay(missionControlOpen: true, settled: true, awaitingTitles: true) == 33)
+    }
+
+    @Test func movementAfterSettlingRestoresFastPolling() {
+        var stability = ThumbnailStability()
+        func delay(_ frames: [CGRect]) -> Int {
+            MissionControlProbe.pollDelay(
+                missionControlOpen: true, settled: stability.update(frames: frames), awaitingTitles: false)
+        }
+        #expect(delay([thumbnail]) == 33)
+        #expect(delay([thumbnail]) == 33)
+        #expect(delay([thumbnail]) == 100)
+        #expect(delay([thumbnail.offsetBy(dx: 40, dy: 0)]) == 33)
+    }
+
     @Test func spaceNotificationsDoNotRestartOrRetainPausedProbes() {
         weak var released: MissionControlProbe?
         do {

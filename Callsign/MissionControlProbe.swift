@@ -133,7 +133,7 @@ final class MissionControlProbe {
         }
     }
 
-    // Polling bookkeeping changes ~30 times a second; views observe only the state above.
+    // Polling bookkeeping changes up to ~30 times a second; views observe only the state above.
     private let overlays = OverlayManager()
     private let workspaceCenter = NSWorkspace.shared.notificationCenter
     @ObservationIgnored private var spaceObserver: NSObjectProtocol?
@@ -204,6 +204,16 @@ final class MissionControlProbe {
         lastTitleSync = -Double.infinity
     }
 
+    // Milliseconds. Closed or settled, entry and swipes are still caught within one idle poll.
+    static let idlePollDelay = 100
+    static let activePollDelay = 33
+
+    static func pollDelay(missionControlOpen: Bool, settled: Bool, awaitingTitles: Bool) -> Int {
+        // Stay fast until settled, and while a title read is in flight so it appears promptly.
+        guard missionControlOpen else { return idlePollDelay }
+        return settled && !awaitingTitles ? idlePollDelay : activePollDelay
+    }
+
     // Returns the delay in milliseconds before the app should poll again.
     func poll(configuration: TagConfiguration) -> Int {
         let trusted = AXIsProcessTrusted()
@@ -228,7 +238,7 @@ final class MissionControlProbe {
             status = wasRunning
                 ? "Mission Control closed."
                 : "Ready. Open Mission Control."
-            return 33
+            return Self.pollDelay(missionControlOpen: false, settled: false, awaitingTitles: false)
         }
 
         if phase == .normal {
@@ -263,16 +273,17 @@ final class MissionControlProbe {
             status = thumbnails.isEmpty
                 ? "Mission Control: waiting for thumbnail frames…"
                 : "Mission Control transitioning. Tags hidden…"
-            return 33
+            return Self.pollDelay(missionControlOpen: true, settled: false, awaitingTitles: false)
         }
         let shouldFadeIn = phase != .active
         if shouldFadeIn {
             settledMilliseconds = Int((now - settleStartedAt) * 1_000)
         }
         phase = .active
+        let delay = Self.pollDelay(missionControlOpen: true, settled: true, awaitingTitles: titleTask != nil)
 
-        // Poll geometry every 33 ms, but refresh badge content and layout at most 10 Hz.
-        guard shouldFadeIn || now - lastBadgeSync >= 0.1 else { return 33 }
+        // Refresh badge content and layout at most 10 Hz; idle polls already space out to that.
+        guard shouldFadeIn || now - lastBadgeSync >= 0.1 else { return delay }
         lastBadgeSync = now
 
         let badges = thumbnails.compactMap { thumbnail -> AppBadge? in
@@ -303,7 +314,7 @@ final class MissionControlProbe {
         scheduleReport { [weak self] in
             self?.makeReport(for: missionControl, dockPID: dockPID, windows: windows) ?? ""
         }
-        return 33
+        return delay
     }
 
     private func suspendBadges() {
@@ -504,7 +515,7 @@ final class MissionControlProbe {
         let tree = dumpTree(missionControl, depth: 0, remaining: &remaining)
             .joined(separator: "\n")
         let timing = settledMilliseconds.map { "~\($0) ms from transition detection to settled" } ?? "Not measured"
-        return "SETTLE TIMING\n\(timing) (2 unchanged polls, ~66 ms; 33 ms poll delay + API overhead)\nDetection: Dock Accessibility, window geometry and Space notifications. No global input monitoring.\n\nMISSION CONTROL AX TREE\n\(tree)\n\nON-SCREEN WINDOWS\n\(windowReport(dockPID: dockPID, windows: windows))"
+        return "SETTLE TIMING\n\(timing) (2 unchanged polls, ~66 ms; \(Self.activePollDelay) ms poll delay + API overhead)\nDetection: Dock Accessibility, window geometry and Space notifications. No global input monitoring.\n\nMISSION CONTROL AX TREE\n\(tree)\n\nON-SCREEN WINDOWS\n\(windowReport(dockPID: dockPID, windows: windows))"
     }
 
     private func dumpTree(
