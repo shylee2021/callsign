@@ -28,8 +28,16 @@ struct AppControllerTests {
         let suite = "CallsignTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         let controller = AppController(defaults: defaults)
-        func page(_ page: ContentView.SettingsPage) -> some View {
-            ContentView(controller: controller, page: page).fixedSize(horizontal: false, vertical: true)
+        // Host the panes directly; the native scene test covers SettingsView's tabs.
+        func page(_ page: SettingsPage) -> some View {
+            Group {
+                switch page {
+                case .general: GeneralSettingsView(controller: controller)
+                case .appearance: AppearanceSettingsView(controller: controller)
+                case .about: AboutSettingsView()
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
         }
         let host = NSHostingController(rootView: page(.general))
         host.sizingOptions = []
@@ -65,7 +73,7 @@ struct AppControllerTests {
             #expect(!controller.isPolling)
         }
 
-        func selectPage(_ selection: ContentView.SettingsPage) async throws -> NSView {
+        func selectPage(_ selection: SettingsPage) async throws -> NSView {
             host.rootView = page(selection)
             try await settle()
             return host.view
