@@ -106,6 +106,7 @@ final class MissionControlProbe {
     // Polling bookkeeping changes up to ~30 times a second; views observe only the state above.
     private let overlays = OverlayManager()
     private let apps = AppIdentityCache()
+    private let titles = WindowTitleCache()
     private let workspaceCenter = NSWorkspace.shared.notificationCenter
     @ObservationIgnored private var spaceObserver: NSObjectProtocol?
     @ObservationIgnored private var terminateObserver: NSObjectProtocol?
@@ -116,13 +117,10 @@ final class MissionControlProbe {
     @ObservationIgnored private var settledMilliseconds: Int?
     @ObservationIgnored private var lastBadgeSync = 0.0
     @ObservationIgnored private var dock: (element: AXUIElement, pid: pid_t)?
-    @ObservationIgnored private var windowTitles: [pid_t: [CGWindowID: String]] = [:]
-    @ObservationIgnored private var titleTask: Task<Void, Never>?
-    @ObservationIgnored private var lastTitleSync = -Double.infinity
-    @ObservationIgnored private var requestedTitleIDs: Set<CGWindowID> = []
 
     init() {
         Accessibility.boundMessagingTimeout()
+        titles.onTitlesArrived = { [weak self] in self?.lastBadgeSync = 0 }
         spaceObserver = workspaceCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -156,17 +154,9 @@ final class MissionControlProbe {
     }
 
     func stop() {
-        clearWindowTitles()
+        titles.clear()
         resetMissionControl()
         status = "Callsign is paused."
-    }
-
-    private func clearWindowTitles() {
-        titleTask?.cancel()
-        titleTask = nil
-        windowTitles = [:]
-        requestedTitleIDs = []
-        lastTitleSync = -Double.infinity
     }
 
     // Milliseconds. Closed or settled, entry and swipes are still caught within one idle poll.
@@ -187,7 +177,7 @@ final class MissionControlProbe {
         }
         isTrusted = trusted
         if !trusted || configuration.label != .windowTitle {
-            clearWindowTitles()
+            titles.clear()
         }
         guard trusted else {
             resetMissionControl()
@@ -201,7 +191,7 @@ final class MissionControlProbe {
             }
             if #available(macOS 27, *), configuration.label == .windowTitle {
                 // Warm titles before entry; the refresh throttles WindowServer and AX reads to 1 Hz.
-                refreshWindowTitles()
+                titles.refresh()
             }
             status = wasRunning
                 ? "Mission Control closed."
@@ -212,7 +202,7 @@ final class MissionControlProbe {
         if phase == .normal {
             resetMissionControl()
             // Refresh renamed windows during entry without discarding already-known titles.
-            lastTitleSync = -Double.infinity
+            titles.markStale()
             phase = .entering
             settleStartedAt = ProcessInfo.processInfo.systemUptime
             beginSettleInterval()
@@ -225,9 +215,9 @@ final class MissionControlProbe {
         if #available(macOS 27, *) {
             // macOS 27 can expose an empty AX group, so do not rely on its children.
             if configuration.label == .windowTitle {
-                refreshWindowTitles(for: windows)
+                titles.refresh(for: windows)
             }
-            thumbnails = Thumbnail.fromWindowServer(windows, windowTitles: windowTitles)
+            thumbnails = Thumbnail.fromWindowServer(windows, windowTitles: titles.windowTitles)
             source = "WindowServer"
         } else {
             thumbnails = missionControlThumbnails(in: missionControl)
@@ -250,7 +240,7 @@ final class MissionControlProbe {
             endSettleInterval(settled: true)
         }
         phase = .active
-        let delay = Self.pollDelay(missionControlOpen: true, settled: true, awaitingTitles: titleTask != nil)
+        let delay = Self.pollDelay(missionControlOpen: true, settled: true, awaitingTitles: titles.isFetching)
 
         // Refresh badge content and layout at most 10 Hz; idle polls already space out to that.
         guard shouldFadeIn || now - lastBadgeSync >= 0.1 else { return delay }
@@ -259,7 +249,7 @@ final class MissionControlProbe {
         let badges = thumbnails.compactMap { thumbnail -> AppBadge? in
             guard let window = thumbnail.matchingWindow(in: windows) else { return nil }
             if #available(macOS 27, *), configuration.label == .windowTitle,
-               !window.hasWindowTitleResult(in: windowTitles) {
+               !titles.hasResult(for: window) {
                 return nil
             }
             let identity = apps.identity(for: window)
@@ -364,107 +354,5 @@ final class MissionControlProbe {
                     title: Accessibility.string(kAXTitleAttribute, of: element) ?? "",
                     frame: frame)
             }
-    }
-
-    private func refreshWindowTitles(for windows: [WindowInfo]? = nil) {
-        guard titleTask == nil else { return }
-        let now = ProcessInfo.processInfo.systemUptime
-        // Outside Mission Control, do not enumerate windows on every polling tick.
-        if windows == nil, now - lastTitleSync < 1 { return }
-        let candidates = (windows ?? WindowList.onScreen()).filter { $0.canReceiveBadge && $0.pid > 0 }
-        // Retry pending reads sooner, but don't hammer a busy app on every geometry poll.
-        let interval = candidates.contains { !$0.hasWindowTitleResult(in: windowTitles) } ? 0.15 : 1.0
-        guard now - lastTitleSync >= interval
-                || candidates.contains(where: { !requestedTitleIDs.contains($0.id) })
-        else { return }
-        lastTitleSync = now
-        requestedTitleIDs = Set(candidates.map(\.id))
-        var targets = Dictionary(grouping: candidates, by: \.pid).mapValues { Set($0.map(\.id)) }
-        windowTitles = targets.reduce(into: [:]) { cache, target in
-            cache[target.key] = windowTitles[target.key]?.filter { target.value.contains($0.key) }
-        }
-        if let localTitles = Self.readLocalWindowTitles(removingFrom: &targets) {
-            windowTitles[ProcessInfo.processInfo.processIdentifier] = localTitles
-        }
-        guard !targets.isEmpty else { return }
-
-        // Read off-main and publish each app independently, so a slow app cannot hold up the others.
-        titleTask = Task.detached(priority: .utility) { [weak self] in
-            await withTaskGroup(of: (pid_t, [CGWindowID: String]).self) { group in
-                for (pid, ids) in targets {
-                    group.addTask {
-                        let signpost = Log.signposter.beginInterval(
-                            "TitleFetch", id: Log.signposter.makeSignpostID(), "pid \(pid, privacy: .public)")
-                        defer { Log.signposter.endInterval("TitleFetch", signpost) }
-                        return (pid, Self.readAccessibilityTitles(for: pid, windowIDs: ids))
-                    }
-                }
-                for await (pid, titles) in group {
-                    await MainActor.run { [weak self] in
-                        guard !Task.isCancelled, let self else { return }
-                        // Failed reads stay pending; they must not erase a previously resolved title.
-                        self.windowTitles[pid, default: [:]].merge(titles) { _, new in new }
-                        if !titles.isEmpty { self.lastBadgeSync = 0 }
-                    }
-                }
-            }
-            await MainActor.run { [weak self] in
-                guard !Task.isCancelled, let self else { return }
-                self.titleTask = nil
-            }
-        }
-    }
-
-    static func readLocalWindowTitles(
-        removingFrom targets: inout [pid_t: Set<CGWindowID>]
-    ) -> [CGWindowID: String]? {
-        let pid = ProcessInfo.processInfo.processIdentifier
-        guard let ids = targets.removeValue(forKey: pid) else { return nil }
-        // Keep our AppKit access on the main actor and our PID out of background AX requests.
-        var titles = Dictionary(uniqueKeysWithValues: ids.map { ($0, "") })
-        for window in NSApplication.shared.windows {
-            guard let id = CGWindowID(exactly: window.windowNumber), ids.contains(id) else { continue }
-            titles[id] = window.title
-        }
-        return titles
-    }
-
-    private nonisolated static func readAccessibilityTitles(
-        for pid: pid_t, windowIDs: Set<CGWindowID>
-    ) -> [CGWindowID: String] {
-        var titles: [CGWindowID: String] = [:]
-        let untitled = Dictionary(uniqueKeysWithValues: windowIDs.map { ($0, "") })
-        // This private bridge identifies AX windows even when Mission Control scales their frames.
-        guard let windowID = PrivateAPI.axWindowID else { return untitled }
-        guard !Task.isCancelled else { return titles }
-        let app = AXUIElementCreateApplication(pid)
-        AXUIElementSetMessagingTimeout(app, 0.05)
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value)
-        guard error == .success, let windows = value as? [AXUIElement] else {
-            Log.titles.debug("AXWindows read failed for pid \(pid, privacy: .public): \(error.rawValue, privacy: .public)")
-            // Unsupported AX is a real fallback; a timeout or interrupted read is not.
-            if error == .attributeUnsupported || error == .notImplemented { return untitled }
-            return titles
-        }
-        for window in windows {
-            guard !Task.isCancelled else { break }
-            AXUIElementSetMessagingTimeout(window, 0.05)
-            var id: CGWindowID = 0
-            guard windowID(window, &id) == .success, windowIDs.contains(id) else { continue }
-            var value: CFTypeRef?
-            let error = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &value)
-            if let title = resolvedAccessibilityTitle(value, error: error) { titles[id] = title }
-            if titles.count == windowIDs.count { break }
-        }
-        return titles
-    }
-
-    nonisolated static func resolvedAccessibilityTitle(_ value: CFTypeRef?, error: AXError) -> String? {
-        switch error {
-        case .success: value as? String
-        case .noValue, .attributeUnsupported, .notImplemented: ""
-        default: nil
-        }
     }
 }

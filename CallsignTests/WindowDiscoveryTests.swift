@@ -68,7 +68,7 @@ struct WindowDiscoveryTests {
     }
 
     @Test func failedTitleReadsStayPendingRatherThanBecomingAppNameFallbacks() {
-        let read = MissionControlProbe.resolvedAccessibilityTitle
+        let read = WindowTitleCache.resolvedAccessibilityTitle
         #expect(read(nil, .cannotComplete) == nil)
         #expect(read(nil, .invalidUIElement) == nil)
         #expect(read(nil, .success) == nil)
@@ -92,14 +92,14 @@ struct WindowDiscoveryTests {
         let missingID = CGWindowID.max
         var targets: [pid_t: Set<CGWindowID>] = [pid: [id, missingID], 1: [42]]
 
-        let titles = try #require(MissionControlProbe.readLocalWindowTitles(removingFrom: &targets))
+        let titles = try #require(WindowTitleCache.readLocalWindowTitles(removingFrom: &targets))
         #expect(titles == [id: "Local document", missingID: ""])
         #expect(targets == [1: [42]])
-        #expect(MissionControlProbe.readLocalWindowTitles(removingFrom: &targets) == nil)
+        #expect(WindowTitleCache.readLocalWindowTitles(removingFrom: &targets) == nil)
 
         window.title = "Renamed document"
         targets[pid] = [id]
-        #expect(MissionControlProbe.readLocalWindowTitles(removingFrom: &targets)?[id] == "Renamed document")
+        #expect(WindowTitleCache.readLocalWindowTitles(removingFrom: &targets)?[id] == "Renamed document")
         #expect(targets == [1: [42]])
     }
 
