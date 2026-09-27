@@ -154,8 +154,7 @@ final class MissionControlProbe {
     @ObservationIgnored private var requestedTitleIDs: Set<CGWindowID> = []
 
     init() {
-        // A per-element timeout covers only that element, so bound every AX read, including Dock children.
-        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.2)
+        Accessibility.boundMessagingTimeout()
         spaceObserver = workspaceCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -352,14 +351,14 @@ final class MissionControlProbe {
         guard let dock else { return nil }
 
         // A failed read may mean a relaunched Dock without a notification; resolve it again next poll.
-        guard let children = Self.attribute(kAXChildrenAttribute, of: dock.element) as? [AXUIElement] else {
+        guard let children = Accessibility.attribute(kAXChildrenAttribute, of: dock.element) as? [AXUIElement] else {
             Log.detection.info("Dropped the cached Dock element after a failed AXChildren read")
             self.dock = nil
             return nil
         }
         // Mission Control lives in the Dock's AX tree; these identifiers are macOS internals.
         guard let group = children.first(where: {
-            stringAttribute(kAXIdentifierAttribute, of: $0) == "mc"
+            Accessibility.string(kAXIdentifierAttribute, of: $0) == "mc"
         }) else { return nil }
         return (group, dock.pid)
     }
@@ -400,16 +399,16 @@ final class MissionControlProbe {
     }
 
     private func missionControlThumbnails(in group: AXUIElement) -> [Thumbnail] {
-        children(of: group)
-            .filter { stringAttribute(kAXIdentifierAttribute, of: $0) == "mc.display" }
-            .flatMap(children)
-            .filter { stringAttribute(kAXIdentifierAttribute, of: $0) == "mc.windows" }
-            .flatMap(children)
+        Accessibility.children(of: group)
+            .filter { Accessibility.string(kAXIdentifierAttribute, of: $0) == "mc.display" }
+            .flatMap(Accessibility.children)
+            .filter { Accessibility.string(kAXIdentifierAttribute, of: $0) == "mc.windows" }
+            .flatMap(Accessibility.children)
             .compactMap { element in
-                guard let frame = frame(of: element) else { return nil }
+                guard let frame = Accessibility.frame(of: element) else { return nil }
                 return Thumbnail(
                     windowID: nil,
-                    title: stringAttribute(kAXTitleAttribute, of: element) ?? "",
+                    title: Accessibility.string(kAXTitleAttribute, of: element) ?? "",
                     frame: frame)
             }
     }
@@ -563,12 +562,12 @@ final class MissionControlProbe {
         remaining -= 1
 
         let indent = String(repeating: "  ", count: depth)
-        let role = stringAttribute(kAXRoleAttribute, of: element) ?? "?"
-        let identifier = stringAttribute(kAXIdentifierAttribute, of: element)
-        let title = stringAttribute(kAXTitleAttribute, of: element)
-        let description = stringAttribute(kAXDescriptionAttribute, of: element)
-        let frame = frame(of: element)
-        let childElements = children(of: element)
+        let role = Accessibility.string(kAXRoleAttribute, of: element) ?? "?"
+        let identifier = Accessibility.string(kAXIdentifierAttribute, of: element)
+        let title = Accessibility.string(kAXTitleAttribute, of: element)
+        let description = Accessibility.string(kAXDescriptionAttribute, of: element)
+        let frame = Accessibility.frame(of: element)
+        let childElements = Accessibility.children(of: element)
         var details = [role]
         if let identifier, !identifier.isEmpty { details.append("id=\(identifier)") }
         if let title, !title.isEmpty { details.append("title=\(title.debugDescription)") }
@@ -589,39 +588,6 @@ final class MissionControlProbe {
             lines.append("\(indent)  … \(childElements.count - 50) children omitted")
         }
         return lines
-    }
-
-    private func children(of element: AXUIElement) -> [AXUIElement] {
-        Self.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement] ?? []
-    }
-
-    private func stringAttribute(_ name: String, of element: AXUIElement) -> String? {
-        Self.attribute(name, of: element) as? String
-    }
-
-    private nonisolated static func attribute(_ name: String, of element: AXUIElement) -> CFTypeRef? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success else {
-            return nil
-        }
-        return value
-    }
-
-    private func frame(of element: AXUIElement) -> CGRect? {
-        guard
-            let positionValue = Self.attribute(kAXPositionAttribute, of: element),
-            let sizeValue = Self.attribute(kAXSizeAttribute, of: element),
-            CFGetTypeID(positionValue) == AXValueGetTypeID(),
-            CFGetTypeID(sizeValue) == AXValueGetTypeID()
-        else { return nil }
-
-        var position = CGPoint.zero
-        var size = CGSize.zero
-        guard
-            AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
-            AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
-        else { return nil }
-        return CGRect(origin: position, size: size)
     }
 
     private func onScreenWindows() -> [WindowInfo] {
