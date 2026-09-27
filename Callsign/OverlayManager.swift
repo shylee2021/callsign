@@ -5,6 +5,7 @@
 
 import AppKit
 import Darwin
+import os
 import SwiftUI
 
 @MainActor
@@ -12,6 +13,8 @@ final class OverlayManager {
     private(set) var panels: [CGWindowID: BadgePanel] = [:]
     private var liquidGlass = false
     private var space: OverlaySpace?
+    // Creation is retried on each show; log once per failing streak, not per badge update.
+    private var spaceFailed = false
 
     func show(
         _ badges: [AppBadge],
@@ -32,7 +35,13 @@ final class OverlayManager {
         }
         guard !badges.isEmpty else { hide(); return }
         let needsSpace = space == nil
-        if needsSpace { space = OverlaySpace() }
+        if needsSpace {
+            space = OverlaySpace()
+            if space == nil, !spaceFailed {
+                Log.overlay.error("Overlay Space creation failed; falling back to moveToActiveSpace")
+            }
+            spaceFailed = space == nil
+        }
         for badge in badges {
             let panel = panels[badge.windowID] ?? BadgePanel(liquidGlass: liquidGlass)
             panels[badge.windowID] = panel

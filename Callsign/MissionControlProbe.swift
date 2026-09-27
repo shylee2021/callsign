@@ -7,6 +7,7 @@
 import AppKit
 import Darwin
 import Observation
+import os
 
 struct Thumbnail {
     let windowID: CGWindowID?
@@ -141,6 +142,7 @@ final class MissionControlProbe {
     @ObservationIgnored private var phase = MissionControlPhase.normal
     @ObservationIgnored private var stability = ThumbnailStability()
     @ObservationIgnored private var settleStartedAt = 0.0
+    @ObservationIgnored private var settleSignpost: OSSignpostIntervalState?
     @ObservationIgnored private var settledMilliseconds: Int?
     @ObservationIgnored private var reportTask: Task<Void, Never>?
     @ObservationIgnored private var lastBadgeSync = 0.0
@@ -221,6 +223,9 @@ final class MissionControlProbe {
     // Returns the delay in milliseconds before the app should poll again.
     func poll(configuration: TagConfiguration) -> Int {
         let trusted = AXIsProcessTrusted()
+        if trusted != isTrusted {
+            Log.detection.notice("Accessibility trust changed: \(trusted, privacy: .public)")
+        }
         isTrusted = trusted
         if !trusted || configuration.label != .windowTitle {
             clearWindowTitles()
@@ -251,6 +256,7 @@ final class MissionControlProbe {
             lastTitleSync = -Double.infinity
             phase = .entering
             settleStartedAt = ProcessInfo.processInfo.systemUptime
+            beginSettleInterval()
             status = "Mission Control entering…"
         }
 
@@ -282,6 +288,7 @@ final class MissionControlProbe {
         let shouldFadeIn = phase != .active
         if shouldFadeIn {
             settledMilliseconds = Int((now - settleStartedAt) * 1_000)
+            endSettleInterval(settled: true)
         }
         phase = .active
         let delay = Self.pollDelay(missionControlOpen: true, settled: true, awaitingTitles: titleTask != nil)
@@ -328,6 +335,7 @@ final class MissionControlProbe {
         if phase == .active {
             phase = .transitioning
             settleStartedAt = ProcessInfo.processInfo.systemUptime
+            beginSettleInterval()
             settledMilliseconds = nil
             cancelReport()
             status = "Mission Control transitioning. Tags hidden…"
@@ -345,6 +353,7 @@ final class MissionControlProbe {
 
         // A failed read may mean a relaunched Dock without a notification; resolve it again next poll.
         guard let children = Self.attribute(kAXChildrenAttribute, of: dock.element) as? [AXUIElement] else {
+            Log.detection.info("Dropped the cached Dock element after a failed AXChildren read")
             self.dock = nil
             return nil
         }
@@ -359,11 +368,23 @@ final class MissionControlProbe {
         phase = .normal
         stability = ThumbnailStability()
         settleStartedAt = 0
+        endSettleInterval(settled: false)
         settledMilliseconds = nil
         cancelReport()
         lastBadgeSync = 0
         // Title fetching outlives Mission Control transitions, so entry can reuse warm results.
         overlays.hide()
+    }
+
+    private func beginSettleInterval() {
+        endSettleInterval(settled: false)
+        settleSignpost = Log.signposter.beginInterval("Settle", id: Log.signposter.makeSignpostID())
+    }
+
+    private func endSettleInterval(settled: Bool) {
+        guard let settleSignpost else { return }
+        Log.signposter.endInterval("Settle", settleSignpost, "\(settled ? "settled" : "abandoned", privacy: .public)")
+        self.settleSignpost = nil
     }
 
     private func appIdentity(for window: WindowInfo) -> AppIdentity {
@@ -419,7 +440,12 @@ final class MissionControlProbe {
         titleTask = Task.detached(priority: .utility) { [weak self] in
             await withTaskGroup(of: (pid_t, [CGWindowID: String]).self) { group in
                 for (pid, ids) in targets {
-                    group.addTask { (pid, Self.readAccessibilityTitles(for: pid, windowIDs: ids)) }
+                    group.addTask {
+                        let signpost = Log.signposter.beginInterval(
+                            "TitleFetch", id: Log.signposter.makeSignpostID(), "pid \(pid, privacy: .public)")
+                        defer { Log.signposter.endInterval("TitleFetch", signpost) }
+                        return (pid, Self.readAccessibilityTitles(for: pid, windowIDs: ids))
+                    }
                 }
                 for await (pid, titles) in group {
                     await MainActor.run { [weak self] in
@@ -464,6 +490,7 @@ final class MissionControlProbe {
         var value: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value)
         guard error == .success, let windows = value as? [AXUIElement] else {
+            Log.titles.debug("AXWindows read failed for pid \(pid, privacy: .public): \(error.rawValue, privacy: .public)")
             // Unsupported AX is a real fallback; a timeout or interrupted read is not.
             if error == .attributeUnsupported || error == .notImplemented { return untitled }
             return titles

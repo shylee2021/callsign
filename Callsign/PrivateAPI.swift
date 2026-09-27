@@ -5,6 +5,7 @@
 
 @preconcurrency import ApplicationServices
 import Darwin
+import os
 
 // Every private dependency lives here, so a macOS update has one place to check:
 // - _AXUIElementGetWindow: pairs AX windows with WindowServer IDs; Mission Control scales frames,
@@ -39,9 +40,16 @@ nonisolated enum PrivateAPI {
     // Resolved once. Addresses are kept as integers so the table stays Sendable.
     private static let addresses: [String: UInt] = {
         // dlopen(nil) is the main program handle; keep it open for the process lifetime.
-        guard let handle = dlopen(nil, RTLD_LAZY) else { return [:] }
+        guard let handle = dlopen(nil, RTLD_LAZY) else {
+            Log.privateAPI.fault("dlopen(nil) failed; every private symbol is missing")
+            return [:]
+        }
         return symbols.reduce(into: [:]) { table, name in
-            if let symbol = dlsym(handle, name) { table[name] = UInt(bitPattern: symbol) }
+            if let symbol = dlsym(handle, name) {
+                table[name] = UInt(bitPattern: symbol)
+            } else {
+                Log.privateAPI.fault("Private symbol \(name, privacy: .public) is missing")
+            }
         }
     }()
 
