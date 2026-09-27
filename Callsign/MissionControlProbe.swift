@@ -145,6 +145,7 @@ final class MissionControlProbe {
     @ObservationIgnored private var reportTask: Task<Void, Never>?
     @ObservationIgnored private var lastBadgeSync = 0.0
     @ObservationIgnored private var appCache: [pid_t: AppIdentity] = [:]
+    @ObservationIgnored private var dock: (element: AXUIElement, pid: pid_t)?
     @ObservationIgnored private var windowTitles: [pid_t: [CGWindowID: String]] = [:]
     @ObservationIgnored private var titleTask: Task<Void, Never>?
     @ObservationIgnored private var lastTitleSync = -Double.infinity
@@ -168,8 +169,11 @@ final class MissionControlProbe {
             // PIDs are recycled, so a quit app's identity must not outlive it.
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             let pid = app.processIdentifier
+            let bundleIdentifier = app.bundleIdentifier
             MainActor.assumeIsolated {
                 self?.appCache[pid] = nil
+                // A relaunched Dock gets a new PID and AX element.
+                if bundleIdentifier == Self.dockBundleIdentifier { self?.dock = nil }
             }
         }
     }
@@ -330,16 +334,25 @@ final class MissionControlProbe {
         }
     }
 
-    private func currentMissionControl() -> (AXUIElement, pid_t)? {
-        guard let dock = NSRunningApplication.runningApplications(
-            withBundleIdentifier: "com.apple.dock").first else { return nil }
+    private static let dockBundleIdentifier = "com.apple.dock"
 
-        let dockElement = AXUIElementCreateApplication(dock.processIdentifier)
+    private func currentMissionControl() -> (AXUIElement, pid_t)? {
+        if dock == nil, let app = NSRunningApplication.runningApplications(
+            withBundleIdentifier: Self.dockBundleIdentifier).first {
+            dock = (AXUIElementCreateApplication(app.processIdentifier), app.processIdentifier)
+        }
+        guard let dock else { return nil }
+
+        // A failed read may mean a relaunched Dock without a notification; resolve it again next poll.
+        guard let children = Self.attribute(kAXChildrenAttribute, of: dock.element) as? [AXUIElement] else {
+            self.dock = nil
+            return nil
+        }
         // Mission Control lives in the Dock's AX tree; these identifiers are macOS internals.
-        guard let group = children(of: dockElement).first(where: {
+        guard let group = children.first(where: {
             stringAttribute(kAXIdentifierAttribute, of: $0) == "mc"
         }) else { return nil }
-        return (group, dock.processIdentifier)
+        return (group, dock.pid)
     }
 
     private func resetMissionControl() {
