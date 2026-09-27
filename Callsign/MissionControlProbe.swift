@@ -80,26 +80,6 @@ struct ThumbnailStability {
     }
 }
 
-struct WindowInfo {
-    let id: CGWindowID
-    let pid: pid_t
-    let owner: String
-    let title: String
-    let frame: CGRect
-    let layer: Int
-    let alpha: Double
-
-    var canReceiveBadge: Bool {
-        // WindowManager's hover decoration is system UI, even when it appears on layer 0.
-        layer == 0 && alpha > 0.01 && owner != "WindowManager"
-    }
-
-    func hasWindowTitleResult(in titles: [pid_t: [CGWindowID: String]]) -> Bool {
-        // Missing means pending; an empty string means the lookup finished without a title.
-        titles[pid]?[id] != nil
-    }
-}
-
 struct AppBadge {
     let windowID: CGWindowID
     let pid: pid_t
@@ -259,7 +239,7 @@ final class MissionControlProbe {
             status = "Mission Control entering…"
         }
 
-        let windows = onScreenWindows()
+        let windows = WindowList.onScreen()
         let thumbnails: [Thumbnail]
         let source: String
         if #available(macOS 27, *) {
@@ -418,7 +398,7 @@ final class MissionControlProbe {
         let now = ProcessInfo.processInfo.systemUptime
         // Outside Mission Control, do not enumerate windows on every polling tick.
         if windows == nil, now - lastTitleSync < 1 { return }
-        let candidates = (windows ?? onScreenWindows()).filter { $0.canReceiveBadge && $0.pid > 0 }
+        let candidates = (windows ?? WindowList.onScreen()).filter { $0.canReceiveBadge && $0.pid > 0 }
         // Retry pending reads sooner, but don't hammer a busy app on every geometry poll.
         let interval = candidates.contains { !$0.hasWindowTitleResult(in: windowTitles) } ? 0.15 : 1.0
         guard now - lastTitleSync >= interval
@@ -590,27 +570,6 @@ final class MissionControlProbe {
         return lines
     }
 
-    private func onScreenWindows() -> [WindowInfo] {
-        guard let windows = CGWindowListCopyWindowInfo(
-            [.optionOnScreenOnly, .excludeDesktopElements],
-            kCGNullWindowID) as? [[String: Any]] else { return [] }
-
-        return windows.compactMap { window in
-            guard let bounds = window[kCGWindowBounds as String] as? NSDictionary,
-                  let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return nil }
-            let id = number(window[kCGWindowNumber as String]).uint32Value
-            guard id != kCGNullWindowID, frame.width > 1, frame.height > 1 else { return nil }
-            return WindowInfo(
-                id: id,
-                pid: pid_t(number(window[kCGWindowOwnerPID as String]).int32Value),
-                owner: window[kCGWindowOwnerName as String] as? String ?? "?",
-                title: window[kCGWindowName as String] as? String ?? "",
-                frame: frame,
-                layer: number(window[kCGWindowLayer as String]).intValue,
-                alpha: number(window[kCGWindowAlpha as String]).doubleValue)
-        }
-    }
-
     private func windowReport(dockPID: pid_t, windows: [WindowInfo]) -> String {
         windows
             .filter { $0.layer == 0 || $0.pid == dockPID }
@@ -628,9 +587,5 @@ final class MissionControlProbe {
                     window.alpha)
             }
             .joined(separator: "\n")
-    }
-
-    private func number(_ value: Any?) -> NSNumber {
-        value as? NSNumber ?? 0
     }
 }
