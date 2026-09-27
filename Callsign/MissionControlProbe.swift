@@ -457,11 +457,7 @@ final class MissionControlProbe {
         var titles: [CGWindowID: String] = [:]
         let untitled = Dictionary(uniqueKeysWithValues: windowIDs.map { ($0, "") })
         // This private bridge identifies AX windows even when Mission Control scales their frames.
-        typealias WindowIDFunction = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
-        guard let handle = dlopen(nil, RTLD_LAZY) else { return untitled }
-        defer { dlclose(handle) }
-        guard let symbol = dlsym(handle, "_AXUIElementGetWindow") else { return untitled }
-        let windowID = unsafeBitCast(symbol, to: WindowIDFunction.self)
+        guard let windowID = PrivateAPI.axWindowID else { return untitled }
         guard !Task.isCancelled else { return titles }
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, 0.05)
@@ -528,7 +524,7 @@ final class MissionControlProbe {
         let tree = dumpTree(missionControl, depth: 0, remaining: &remaining)
             .joined(separator: "\n")
         let timing = settledMilliseconds.map { "~\($0) ms from transition detection to settled" } ?? "Not measured"
-        return "SETTLE TIMING\n\(timing) (2 unchanged polls, ~66 ms; \(Self.activePollDelay) ms poll delay + API overhead)\nDetection: Dock Accessibility, window geometry and Space notifications. No global input monitoring.\n\nMISSION CONTROL AX TREE\n\(tree)\n\nON-SCREEN WINDOWS\n\(windowReport(dockPID: dockPID, windows: windows))"
+        return "SETTLE TIMING\n\(timing) (2 unchanged polls, ~66 ms; \(Self.activePollDelay) ms poll delay + API overhead)\nDetection: Dock Accessibility, window geometry and Space notifications. No global input monitoring.\n\nMISSION CONTROL AX TREE\n\(tree)\n\nON-SCREEN WINDOWS\n\(windowReport(dockPID: dockPID, windows: windows))\n\nPRIVATE API\n\(PrivateAPI.report)"
     }
 
     private func dumpTree(

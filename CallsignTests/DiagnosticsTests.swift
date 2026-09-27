@@ -42,4 +42,17 @@ struct DiagnosticsTests {
         #expect(probe.report == savedReport)
         #expect(!MissionControlProbe().recordDiagnostics) // A fresh session never inherits recording.
     }
+
+    @Test func privateSymbolsResolveOnThisMacOS() {
+        // A macOS update that drops a symbol should fail here, not silently degrade tags.
+        #expect(PrivateAPI.axWindowID != nil)
+        #expect(PrivateAPI.skyLight != nil)
+        let report = PrivateAPI.report
+        for symbol in [
+            "_AXUIElementGetWindow", "CGSMainConnectionID", "SLSSpaceCreate", "SLSSpaceSetAbsoluteLevel",
+            "SLSShowSpaces", "SLSSpaceAddWindowsAndRemoveFromSpaces", "SLSSpaceDestroy",
+        ] {
+            #expect(report.contains("\(symbol): resolved"))
+        }
+    }
 }

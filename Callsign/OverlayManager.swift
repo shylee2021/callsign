@@ -59,35 +59,26 @@ final class OverlayManager {
 // Replace this with AppKit preview exclusion if Apple exposes it.
 @MainActor
 private final class OverlaySpace {
+    private let skyLight: PrivateAPI.SkyLight
     private let connection: Int32
     private let id: UInt64
-    private let addWindows: @convention(c) (Int32, UInt64, CFArray, UInt32) -> Void
-    private let destroy: @convention(c) (Int32, UInt64) -> Void
 
     init?() {
-        guard let handle = dlopen(nil, RTLD_LAZY) else { return nil }
-        defer { dlclose(handle) }
-        guard let main = dlsym(handle, "CGSMainConnectionID"),
-              let create = dlsym(handle, "SLSSpaceCreate"),
-              let level = dlsym(handle, "SLSSpaceSetAbsoluteLevel"),
-              let show = dlsym(handle, "SLSShowSpaces"),
-              let add = dlsym(handle, "SLSSpaceAddWindowsAndRemoveFromSpaces"),
-              let release = dlsym(handle, "SLSSpaceDestroy") else { return nil }
-        connection = unsafeBitCast(main, to: (@convention(c) () -> Int32).self)()
-        id = unsafeBitCast(create, to: (@convention(c) (Int32, Int32, CFDictionary?) -> UInt64).self)(connection, 1, nil)
+        guard let skyLight = PrivateAPI.skyLight else { return nil }
+        self.skyLight = skyLight
+        connection = skyLight.mainConnectionID()
+        id = skyLight.spaceCreate(connection, 1, nil)
         guard id != 0 else { return nil }
-        addWindows = unsafeBitCast(add, to: (@convention(c) (Int32, UInt64, CFArray, UInt32) -> Void).self)
-        destroy = unsafeBitCast(release, to: (@convention(c) (Int32, UInt64) -> Void).self)
-        unsafeBitCast(level, to: (@convention(c) (Int32, UInt64, Int32) -> Void).self)(connection, id, 0)
-        unsafeBitCast(show, to: (@convention(c) (Int32, CFArray) -> Void).self)(connection, [id] as CFArray)
+        skyLight.spaceSetAbsoluteLevel(connection, id, 0)
+        skyLight.showSpaces(connection, [id] as CFArray)
     }
 
     func add(_ window: NSWindow) {
         // 0x7 removes membership in desktop/full-screen Spaces, not just the inactive ones.
-        addWindows(connection, id, [window.windowNumber] as CFArray, 0x7)
+        skyLight.spaceAddWindowsAndRemoveFromSpaces(connection, id, [window.windowNumber] as CFArray, 0x7)
     }
 
-    deinit { destroy(connection, id) }
+    deinit { skyLight.spaceDestroy(connection, id) }
 }
 
 @MainActor
