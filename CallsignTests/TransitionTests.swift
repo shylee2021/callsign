@@ -37,7 +37,6 @@ struct TransitionTests {
         #expect(stability.update(frames: [thumbnail]) == true)
         stability.invalidate()
         #expect(stability.update(frames: [thumbnail]) == false)
-        #expect(stability.update(frames: [thumbnail]) == false)
         #expect(stability.update(frames: [thumbnail]) == true)
     }
 

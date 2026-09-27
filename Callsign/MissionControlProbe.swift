@@ -47,8 +47,9 @@ struct ThumbnailStability {
     private var referenceFrames: [CGRect] = []
     private var unchangedPolls: Int?
 
+    // A Space change restarts the count without a moved frame; the next two unchanged polls settle.
     mutating func invalidate() {
-        unchangedPolls = nil
+        unchangedPolls = 0
     }
 
     mutating func update(frames: [CGRect]) -> Bool {
@@ -73,7 +74,8 @@ struct ThumbnailStability {
             unchangedPolls = 0
             return false
         }
-        // ponytail: two quiet polls (~66 ms) can mistake a paused swipe for completion.
+        // ponytail: two quiet polls (~66 ms; 33–133 ms after a Space change, since the next poll may
+        // still be on the idle delay) can mistake a paused swipe for completion.
         // Prefer a system transition-completion notification if one becomes available.
         unchangedPolls = min(count + 1, 2)
         return unchangedPolls == 2
@@ -100,7 +102,6 @@ enum ProbeStatus: Equatable {
     case paused
     case ready
     case closed
-    case entering
     case waitingForFrames
     case transitioning
     case active(labeled: Int, total: Int, source: String, settledMilliseconds: Int?)
@@ -112,7 +113,6 @@ enum ProbeStatus: Equatable {
         case .paused: "Callsign is paused."
         case .ready: "Ready. Open Mission Control."
         case .closed: "Mission Control closed."
-        case .entering: "Mission Control entering…"
         case .waitingForFrames: "Mission Control: waiting for thumbnail frames…"
         case .transitioning: "Mission Control transitioning. Tags hidden…"
         case let .active(labeled, total, source, settledMilliseconds):
@@ -238,7 +238,6 @@ final class MissionControlProbe {
             phase = .settling
             settleStartedAt = ProcessInfo.processInfo.systemUptime
             beginSettleInterval()
-            status = .entering
         }
 
         let windows = windowList()

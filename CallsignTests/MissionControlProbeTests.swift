@@ -93,7 +93,7 @@ struct MissionControlProbeTests {
         missionControlOpen.isOn = true
         let hides = overlays.hides
         #expect(poll() == 33)
-        // Entry is reported only until the same poll measures geometry.
+        // Entry reports the unsettled geometry measured by the same poll.
         #expect(probe.status == .transitioning)
         #expect(overlays.hides > hides)
         #expect(overlays.shown.isEmpty)
@@ -147,8 +147,7 @@ struct MissionControlProbeTests {
             name: NSWorkspace.activeSpaceDidChangeNotification, object: NSWorkspace.shared)
         #expect(probe.status == .transitioning)
         #expect(overlays.hides > hides)
-        // The Space change restarts settling even though no frame moved.
-        #expect(poll() == 33)
+        // The Space change restarts settling even though no frame moved: two unchanged polls, as after a move.
         #expect(poll() == 33)
         #expect(poll() == 100)
         #expect(overlays.shown.count == 2)
@@ -198,7 +197,6 @@ struct MissionControlProbeTests {
         #expect(ProbeStatus.paused.text == "Callsign is paused.")
         #expect(ProbeStatus.ready.text == "Ready. Open Mission Control.")
         #expect(ProbeStatus.closed.text == "Mission Control closed.")
-        #expect(ProbeStatus.entering.text == "Mission Control entering…")
         #expect(ProbeStatus.waitingForFrames.text == "Mission Control: waiting for thumbnail frames…")
         #expect(ProbeStatus.transitioning.text == "Mission Control transitioning. Tags hidden…")
         #expect(ProbeStatus.active(labeled: 1, total: 2, source: "AX", settledMilliseconds: nil).text
