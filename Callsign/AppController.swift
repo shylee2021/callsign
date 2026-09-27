@@ -12,7 +12,7 @@ final class AppController {
     private(set) var settingsRequest = 0
 
     var configuration: TagConfiguration {
-        didSet { configuration.save(to: defaults) }
+        didSet { configuration.save(to: defaults, changedFrom: oldValue) }
     }
     var isEnabled: Bool {
         didSet {

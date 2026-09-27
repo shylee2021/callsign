@@ -211,6 +211,7 @@ struct TagConfigurationTests {
         #expect(defaults.double(forKey: "tag.textBlue") == 0.7)
         defaults.set(0.5, forKey: "tag.appearDelay")
         #expect(TagConfiguration.load(from: defaults) == custom)
+        #expect(defaults.object(forKey: "tag.appearDelay") == nil)
 
         defaults.set("unknown", forKey: "tag.position")
         defaults.set(Double.infinity, forKey: "tag.scale")
@@ -226,8 +227,21 @@ struct TagConfigurationTests {
         defaults.set(true, forKey: "app.showInDock")
         TagConfiguration.default.save(to: defaults)
         #expect(TagConfiguration.load(from: defaults) == .default)
-        #expect(defaults.object(forKey: "tag.appearDelay") == nil)
         #expect(defaults.bool(forKey: "app.showInDock"))
+    }
+
+    @Test func changedPreferencesSaveOnlyTheirKeys() throws {
+        let suite = "CallsignTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        defaults.set(0.3, forKey: "tag.red")
+        var changed = TagConfiguration.default
+        changed.scale = 1.2
+        changed.save(to: defaults, changedFrom: .default)
+        #expect(defaults.double(forKey: "tag.scale") == 1.2)
+        #expect(defaults.double(forKey: "tag.red") == 0.3)
+        #expect(defaults.object(forKey: "tag.position") == nil)
     }
 
     @Test func labelSelectionAndFallback() {

@@ -78,6 +78,8 @@ struct TagConfiguration: Hashable {
     ]
 
     static func load(from defaults: UserDefaults) -> Self {
+        // One-time cleanup of a retired preference.
+        defaults.removeObject(forKey: "tag.appearDelay")
         var configuration = Self.default
         configuration.position = TagPosition(rawValue: defaults.string(forKey: "tag.position") ?? "")
             ?? Self.default.position
@@ -91,14 +93,14 @@ struct TagConfiguration: Hashable {
         return configuration
     }
 
-    func save(to defaults: UserDefaults) {
-        defaults.set(position.rawValue, forKey: "tag.position")
-        defaults.set(label.rawValue, forKey: "tag.label")
-        defaults.set(liquidGlass, forKey: "tag.liquidGlass")
-        for (key, path, _) in Self.numericPreferences {
+    // Without a previous value, writes every preference.
+    func save(to defaults: UserDefaults, changedFrom old: Self? = nil) {
+        if position != old?.position { defaults.set(position.rawValue, forKey: "tag.position") }
+        if label != old?.label { defaults.set(label.rawValue, forKey: "tag.label") }
+        if liquidGlass != old?.liquidGlass { defaults.set(liquidGlass, forKey: "tag.liquidGlass") }
+        for (key, path, _) in Self.numericPreferences where self[keyPath: path] != old?[keyPath: path] {
             defaults.set(self[keyPath: path], forKey: "tag.\(key)")
         }
-        defaults.removeObject(forKey: "tag.appearDelay")
     }
 
     // AX coordinates: origin at the top left, positive Y points down.
