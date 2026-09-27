@@ -93,9 +93,6 @@ private enum MissionControlPhase {
     case normal, entering, active, transitioning
 }
 
-// Dock accessibility (AX) detects Mission Control on both versions.
-// macOS 26 uses Dock AX thumbnails; macOS 27+ uses WindowServer frames.
-// On macOS 27, remote titles come from AX; our own titles come directly from AppKit.
 @MainActor
 @Observable
 final class MissionControlProbe {
@@ -107,16 +104,16 @@ final class MissionControlProbe {
     private let overlays = OverlayManager()
     private let apps = AppIdentityCache()
     private let titles = WindowTitleCache()
+    private let source = defaultThumbnailSource()
+    private let locator = MissionControlLocator()
     private let workspaceCenter = NSWorkspace.shared.notificationCenter
     @ObservationIgnored private var spaceObserver: NSObjectProtocol?
-    @ObservationIgnored private var terminateObserver: NSObjectProtocol?
     @ObservationIgnored private var phase = MissionControlPhase.normal
     @ObservationIgnored private var stability = ThumbnailStability()
     @ObservationIgnored private var settleStartedAt = 0.0
     @ObservationIgnored private var settleSignpost: OSSignpostIntervalState?
     @ObservationIgnored private var settledMilliseconds: Int?
     @ObservationIgnored private var lastBadgeSync = 0.0
-    @ObservationIgnored private var dock: (element: AXUIElement, pid: pid_t)?
 
     init() {
         Accessibility.boundMessagingTimeout()
@@ -130,21 +127,10 @@ final class MissionControlProbe {
                 self.suspendBadges()
             }
         }
-        terminateObserver = workspaceCenter.addObserver(
-            forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
-        ) { [weak self] note in
-            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-            let bundleIdentifier = app.bundleIdentifier
-            MainActor.assumeIsolated {
-                // A relaunched Dock gets a new PID and AX element.
-                if bundleIdentifier == Self.dockBundleIdentifier { self?.dock = nil }
-            }
-        }
     }
 
     deinit {
         if let spaceObserver { workspaceCenter.removeObserver(spaceObserver) }
-        if let terminateObserver { workspaceCenter.removeObserver(terminateObserver) }
     }
 
     func requestAccess() {
@@ -184,12 +170,12 @@ final class MissionControlProbe {
             status = "Accessibility access is required."
             return 500
         }
-        guard let (missionControl, dockPID) = currentMissionControl() else {
+        guard let (missionControl, dockPID) = locator.currentMissionControl() else {
             let wasRunning = phase != .normal
             if wasRunning {
                 resetMissionControl()
             }
-            if #available(macOS 27, *), configuration.label == .windowTitle {
+            if source.usesWindowTitles, configuration.label == .windowTitle {
                 // Warm titles before entry; the refresh throttles WindowServer and AX reads to 1 Hz.
                 titles.refresh()
             }
@@ -210,19 +196,11 @@ final class MissionControlProbe {
         }
 
         let windows = WindowList.onScreen()
-        let thumbnails: [Thumbnail]
-        let source: String
-        if #available(macOS 27, *) {
-            // macOS 27 can expose an empty AX group, so do not rely on its children.
-            if configuration.label == .windowTitle {
-                titles.refresh(for: windows)
-            }
-            thumbnails = Thumbnail.fromWindowServer(windows, windowTitles: titles.windowTitles)
-            source = "WindowServer"
-        } else {
-            thumbnails = missionControlThumbnails(in: missionControl)
-            source = "AX"
+        if source.usesWindowTitles, configuration.label == .windowTitle {
+            titles.refresh(for: windows)
         }
+        let thumbnails = source.thumbnails(
+            missionControl: missionControl, windows: windows, windowTitles: titles.windowTitles)
 
         let now = ProcessInfo.processInfo.systemUptime
         let settled = stability.update(frames: thumbnails.map(\.frame))
@@ -248,7 +226,7 @@ final class MissionControlProbe {
 
         let badges = thumbnails.compactMap { thumbnail -> AppBadge? in
             guard let window = thumbnail.matchingWindow(in: windows) else { return nil }
-            if #available(macOS 27, *), configuration.label == .windowTitle,
+            if source.usesWindowTitles, configuration.label == .windowTitle,
                !titles.hasResult(for: window) {
                 return nil
             }
@@ -266,7 +244,7 @@ final class MissionControlProbe {
             badges,
             configuration: configuration,
             animated: shouldFadeIn)
-        status = "Mission Control active. Labeled \(badges.count) of \(thumbnails.count) windows (\(source))."
+        status = "Mission Control active. Labeled \(badges.count) of \(thumbnails.count) windows (\(source.name))."
         if let elapsed = settledMilliseconds {
             status += " Settled after ~\(elapsed) ms."
         }
@@ -296,28 +274,6 @@ final class MissionControlProbe {
         }
     }
 
-    private static let dockBundleIdentifier = "com.apple.dock"
-
-    private func currentMissionControl() -> (AXUIElement, pid_t)? {
-        if dock == nil, let app = NSRunningApplication.runningApplications(
-            withBundleIdentifier: Self.dockBundleIdentifier).first {
-            dock = (AXUIElementCreateApplication(app.processIdentifier), app.processIdentifier)
-        }
-        guard let dock else { return nil }
-
-        // A failed read may mean a relaunched Dock without a notification; resolve it again next poll.
-        guard let children = Accessibility.attribute(kAXChildrenAttribute, of: dock.element) as? [AXUIElement] else {
-            Log.detection.info("Dropped the cached Dock element after a failed AXChildren read")
-            self.dock = nil
-            return nil
-        }
-        // Mission Control lives in the Dock's AX tree; these identifiers are macOS internals.
-        guard let group = children.first(where: {
-            Accessibility.string(kAXIdentifierAttribute, of: $0) == "mc"
-        }) else { return nil }
-        return (group, dock.pid)
-    }
-
     private func resetMissionControl() {
         phase = .normal
         stability = ThumbnailStability()
@@ -339,20 +295,5 @@ final class MissionControlProbe {
         guard let settleSignpost else { return }
         Log.signposter.endInterval("Settle", settleSignpost, "\(settled ? "settled" : "abandoned", privacy: .public)")
         self.settleSignpost = nil
-    }
-
-    private func missionControlThumbnails(in group: AXUIElement) -> [Thumbnail] {
-        Accessibility.children(of: group)
-            .filter { Accessibility.string(kAXIdentifierAttribute, of: $0) == "mc.display" }
-            .flatMap(Accessibility.children)
-            .filter { Accessibility.string(kAXIdentifierAttribute, of: $0) == "mc.windows" }
-            .flatMap(Accessibility.children)
-            .compactMap { element in
-                guard let frame = Accessibility.frame(of: element) else { return nil }
-                return Thumbnail(
-                    windowID: nil,
-                    title: Accessibility.string(kAXTitleAttribute, of: element) ?? "",
-                    frame: frame)
-            }
     }
 }
