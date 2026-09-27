@@ -326,7 +326,7 @@ final class MissionControlProbe {
         let dockElement = AXUIElementCreateApplication(dock.processIdentifier)
         // Mission Control lives in the Dock's AX tree; these identifiers are macOS internals.
         guard let group = children(of: dockElement).first(where: {
-            stringAttribute("AXIdentifier", of: $0) == "mc"
+            stringAttribute(kAXIdentifierAttribute, of: $0) == "mc"
         }) else { return nil }
         return (group, dock.processIdentifier)
     }
@@ -356,15 +356,15 @@ final class MissionControlProbe {
 
     private func missionControlThumbnails(in group: AXUIElement) -> [Thumbnail] {
         children(of: group)
-            .filter { stringAttribute("AXIdentifier", of: $0) == "mc.display" }
+            .filter { stringAttribute(kAXIdentifierAttribute, of: $0) == "mc.display" }
             .flatMap(children)
-            .filter { stringAttribute("AXIdentifier", of: $0) == "mc.windows" }
+            .filter { stringAttribute(kAXIdentifierAttribute, of: $0) == "mc.windows" }
             .flatMap(children)
             .compactMap { element in
                 guard let frame = frame(of: element) else { return nil }
                 return Thumbnail(
                     windowID: nil,
-                    title: stringAttribute("AXTitle", of: element) ?? "",
+                    title: stringAttribute(kAXTitleAttribute, of: element) ?? "",
                     frame: frame)
             }
     }
@@ -442,7 +442,7 @@ final class MissionControlProbe {
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, 0.05)
         var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(app, "AXWindows" as CFString, &value)
+        let error = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value)
         guard error == .success, let windows = value as? [AXUIElement] else {
             // Unsupported AX is a real fallback; a timeout or interrupted read is not.
             if error == .attributeUnsupported || error == .notImplemented { return untitled }
@@ -454,7 +454,7 @@ final class MissionControlProbe {
             var id: CGWindowID = 0
             guard windowID(window, &id) == .success, windowIDs.contains(id) else { continue }
             var value: CFTypeRef?
-            let error = AXUIElementCopyAttributeValue(window, "AXTitle" as CFString, &value)
+            let error = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &value)
             if let title = resolvedAccessibilityTitle(value, error: error) { titles[id] = title }
             if titles.count == windowIDs.count { break }
         }
@@ -516,10 +516,10 @@ final class MissionControlProbe {
         remaining -= 1
 
         let indent = String(repeating: "  ", count: depth)
-        let role = stringAttribute("AXRole", of: element) ?? "?"
-        let identifier = stringAttribute("AXIdentifier", of: element)
-        let title = stringAttribute("AXTitle", of: element)
-        let description = stringAttribute("AXDescription", of: element)
+        let role = stringAttribute(kAXRoleAttribute, of: element) ?? "?"
+        let identifier = stringAttribute(kAXIdentifierAttribute, of: element)
+        let title = stringAttribute(kAXTitleAttribute, of: element)
+        let description = stringAttribute(kAXDescriptionAttribute, of: element)
         let frame = frame(of: element)
         let childElements = children(of: element)
         var details = [role]
@@ -545,7 +545,7 @@ final class MissionControlProbe {
     }
 
     private func children(of element: AXUIElement) -> [AXUIElement] {
-        Self.attribute("AXChildren", of: element) as? [AXUIElement] ?? []
+        Self.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement] ?? []
     }
 
     private func stringAttribute(_ name: String, of element: AXUIElement) -> String? {
@@ -562,8 +562,8 @@ final class MissionControlProbe {
 
     private func frame(of element: AXUIElement) -> CGRect? {
         guard
-            let positionValue = Self.attribute("AXPosition", of: element),
-            let sizeValue = Self.attribute("AXSize", of: element),
+            let positionValue = Self.attribute(kAXPositionAttribute, of: element),
+            let sizeValue = Self.attribute(kAXSizeAttribute, of: element),
             CFGetTypeID(positionValue) == AXValueGetTypeID(),
             CFGetTypeID(sizeValue) == AXValueGetTypeID()
         else { return nil }
@@ -583,12 +583,8 @@ final class MissionControlProbe {
             kCGNullWindowID) as? [[String: Any]] else { return [] }
 
         return windows.compactMap { window in
-            let bounds = window[kCGWindowBounds as String] as? [String: Any] ?? [:]
-            let frame = CGRect(
-                x: number(bounds["X"]).doubleValue,
-                y: number(bounds["Y"]).doubleValue,
-                width: number(bounds["Width"]).doubleValue,
-                height: number(bounds["Height"]).doubleValue)
+            guard let bounds = window[kCGWindowBounds as String] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return nil }
             let id = number(window[kCGWindowNumber as String]).uint32Value
             guard id != kCGNullWindowID, frame.width > 1, frame.height > 1 else { return nil }
             return WindowInfo(

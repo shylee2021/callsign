@@ -9,8 +9,8 @@ import Testing
 struct AppControllerTests {
     @Test func menuBarIconsAreDistinctTransparentTemplates() throws {
         var masks: [[CGFloat]] = []
-        for name in ["MenuBarIcon", "MenuBarIconPaused"] {
-            let image = try #require(NSImage(named: name))
+        for resource in [ImageResource.menuBarIcon, .menuBarIconPaused] {
+            let image = NSImage(resource: resource)
             #expect(image.isTemplate)
             #expect(image.size == NSSize(width: 20, height: 20))
             let data = try #require(image.tiffRepresentation)

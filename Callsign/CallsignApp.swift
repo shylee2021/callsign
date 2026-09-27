@@ -7,7 +7,7 @@ struct CallsignApp: App {
     @Environment(\.openSettings) private var openSettings
 
     var body: some Scene {
-        MenuBarExtra("Callsign", image: delegate.controller.isEnabled ? "MenuBarIcon" : "MenuBarIconPaused") {
+        MenuBarExtra("Callsign", image: delegate.controller.isEnabled ? .menuBarIcon : .menuBarIconPaused) {
             CallsignMenu(controller: delegate.controller)
         }
         .commands {
