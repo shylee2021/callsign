@@ -1,0 +1,26 @@
+{
+  "configurations" : [
+    {
+      "id" : "E6D24464-77A7-4475-BDA7-45ADC0EDC1DC",
+      "name" : "Test Scheme Action",
+      "options" : {}
+    }
+  ],
+  "defaultOptions" : {
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:Callsign.xcodeproj",
+      "identifier" : "5FD95D55303C9AB200AA7C58",
+      "name" : "Callsign"
+    }
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:Callsign.xcodeproj",
+        "identifier" : "CA1151900000000000000006",
+        "name" : "CallsignTests"
+      }
+    }
+  ],
+  "version" : 1
+}

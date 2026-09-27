@@ -24,7 +24,7 @@ struct AppControllerTests {
         #expect(masks[0] != masks[1])
     }
 
-    @Test func settingsPagesPreserveControlsAndFitContent() async throws {
+    @Test(.tags(.integration)) func settingsPagesPreserveControlsAndFitContent() async throws {
         let suite = "CallsignTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         let controller = AppController(defaults: defaults)
@@ -124,7 +124,7 @@ struct AppControllerTests {
         #expect(!controller.isPolling)
     }
 
-    @Test func nativeSettingsSceneAnimatesTabResizing() async throws {
+    @Test(.tags(.integration)) func nativeSettingsSceneAnimatesTabResizing() async throws {
         // Native window animations must be exercised in the real SwiftUI scene, not an NSHostingController.
         let previousOpened = UserDefaults.standard.object(forKey: PreferenceKey.hasOpenedSettings)
         defer {

@@ -79,7 +79,7 @@ struct WindowDiscoveryTests {
         #expect(read(nil, .notImplemented) == "")
     }
 
-    @Test func ownWindowTitlesUseAppKitAndNeverEnterRemoteAXTargets() throws {
+    @Test(.tags(.integration)) func ownWindowTitlesUseAppKitAndNeverEnterRemoteAXTargets() throws {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)

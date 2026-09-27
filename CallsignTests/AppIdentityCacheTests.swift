@@ -16,7 +16,7 @@ struct AppIdentityCacheTests {
         #expect(cache.identity(for: window(pid: .max, owner: "Other")).name == "Helper")
     }
 
-    @Test func runningAppsUseTheirOwnNameAndLeaveTheCacheWhenTheyQuit() throws {
+    @Test(.tags(.integration)) func runningAppsUseTheirOwnNameAndLeaveTheCacheWhenTheyQuit() throws {
         let cache = AppIdentityCache()
         let app = NSRunningApplication.current
         let pid = app.processIdentifier

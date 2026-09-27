@@ -3,7 +3,7 @@ import Testing
 @testable import Callsign
 
 struct DiagnosticsTests {
-    @Test func recordingIsOptInCancelsPendingWorkAndKeepsTheLastReport() async throws {
+    @Test(.tags(.integration)) func recordingIsOptInCancelsPendingWorkAndKeepsTheLastReport() async throws {
         let probe = MissionControlProbe()
         let diagnostics = probe.diagnostics
         var captures = 0
@@ -57,7 +57,7 @@ struct DiagnosticsTests {
         #expect(!report.hasSuffix("\n"))
     }
 
-    @Test func privateSymbolsResolveOnThisMacOS() {
+    @Test(.tags(.integration)) func privateSymbolsResolveOnThisMacOS() {
         // A macOS update that drops a symbol should fail here, not silently degrade tags.
         #expect(PrivateAPI.axWindowID != nil)
         #expect(PrivateAPI.skyLight != nil)

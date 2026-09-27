@@ -4,6 +4,7 @@ import SwiftUI
 import Testing
 @testable import Callsign
 
+@Suite(.tags(.integration))
 struct OverlayManagerTests {
     @Test func glassPanelAppearanceDoesNotTakeFocusOrChangeGlassOffPanels() throws {
         let overlays = OverlayManager()
