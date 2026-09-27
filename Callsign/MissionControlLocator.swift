@@ -7,7 +7,6 @@
 import AppKit
 import os
 
-@MainActor
 final class MissionControlLocator {
     private static let dockBundleIdentifier = "com.apple.dock"
 

@@ -14,7 +14,6 @@ protocol BadgeSink {
     func hide()
 }
 
-@MainActor
 final class OverlayManager: BadgeSink {
     private(set) var panels: [CGWindowID: BadgePanel] = [:]
     private var liquidGlass = false
@@ -72,7 +71,6 @@ final class OverlayManager: BadgeSink {
 // Desktop previews include ordinary overlay windows, even with sharingType = .none.
 // ponytail: private SkyLight space; fall back to the active desktop if unavailable.
 // Replace this with AppKit preview exclusion if Apple exposes it.
-@MainActor
 private final class OverlaySpace {
     private let skyLight: PrivateAPI.SkyLight
     private let connection: Int32
@@ -96,7 +94,6 @@ private final class OverlaySpace {
     deinit { skyLight.spaceDestroy(connection, id) }
 }
 
-@MainActor
 private final class GlassBadgeWindow: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
@@ -107,7 +104,6 @@ private final class GlassBadgeWindow: NSPanel {
     nonisolated func glassHasActiveAppearance() -> Bool { true }
 }
 
-@MainActor
 final class BadgePanel {
     let window: NSPanel
     private let hostingView: NSHostingView<BadgeView>

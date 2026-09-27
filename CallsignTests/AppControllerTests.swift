@@ -4,7 +4,6 @@ import SwiftUI
 import Testing
 @testable import Callsign
 
-@MainActor
 @Suite(.serialized)
 struct AppControllerTests {
     @Test func menuBarIconsAreDistinctTransparentTemplates() throws {
@@ -119,10 +118,10 @@ struct AppControllerTests {
 
     @Test func nativeSettingsSceneAnimatesTabResizing() async throws {
         // Native window animations must be exercised in the real SwiftUI scene, not an NSHostingController.
-        let previousOpened = UserDefaults.standard.object(forKey: "app.hasOpenedSettings")
+        let previousOpened = UserDefaults.standard.object(forKey: PreferenceKey.hasOpenedSettings)
         defer {
-            if let previousOpened { UserDefaults.standard.set(previousOpened, forKey: "app.hasOpenedSettings") }
-            else { UserDefaults.standard.removeObject(forKey: "app.hasOpenedSettings") }
+            if let previousOpened { UserDefaults.standard.set(previousOpened, forKey: PreferenceKey.hasOpenedSettings) }
+            else { UserDefaults.standard.removeObject(forKey: PreferenceKey.hasOpenedSettings) }
         }
         let menu = try #require(NSApp.mainMenu?.items.first?.submenu)
         let command = try #require(menu.items.first { $0.keyEquivalent == "," })

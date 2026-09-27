@@ -1,7 +1,7 @@
+import ApplicationServices
 import Testing
 @testable import Callsign
 
-@MainActor
 struct DiagnosticsTests {
     @Test func recordingIsOptInCancelsPendingWorkAndKeepsTheLastReport() async throws {
         let probe = MissionControlProbe()
@@ -42,6 +42,19 @@ struct DiagnosticsTests {
         #expect(captures == 1)
         #expect(diagnostics.report == savedReport)
         #expect(!MissionControlProbe().diagnostics.recordDiagnostics) // A fresh session never inherits recording.
+    }
+
+    @Test func reportListsSectionsInOrder() throws {
+        let report = DiagnosticsRecorder.makeReport(
+            for: AXUIElementCreateSystemWide(), dockPID: 0, windows: [], settledMilliseconds: 70)
+        #expect(report.hasPrefix("SETTLE TIMING\n~70 ms from transition detection to settled (2 unchanged polls"))
+        var rest = report[...]
+        for header in ["SETTLE TIMING\n", "\nDetection: ", "\n\nMISSION CONTROL AX TREE\n",
+                       "\n\nON-SCREEN WINDOWS\n", "\n\nPRIVATE API\n"] {
+            let range = try #require(rest.range(of: header))
+            rest = rest[range.upperBound...]
+        }
+        #expect(!report.hasSuffix("\n"))
     }
 
     @Test func privateSymbolsResolveOnThisMacOS() {

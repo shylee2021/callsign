@@ -3,7 +3,6 @@ import ApplicationServices
 import Testing
 @testable import Callsign
 
-@MainActor
 private final class ScriptedThumbnails: ThumbnailSource {
     let name = "Scripted"
     let usesWindowTitles = false
@@ -18,7 +17,6 @@ private final class ScriptedThumbnails: ThumbnailSource {
     }
 }
 
-@MainActor
 private final class RecordingOverlays: BadgeSink {
     private(set) var shown: [(badges: [AppBadge], animated: Bool)] = []
     private(set) var hides = 0
@@ -30,12 +28,10 @@ private final class RecordingOverlays: BadgeSink {
     func hide() { hides += 1 }
 }
 
-@MainActor
 private final class Switch {
     var isOn = false
 }
 
-@MainActor
 @Suite(.serialized)
 struct MissionControlProbeTests {
     // PIDs without a running app, so names fall back to the window owner.

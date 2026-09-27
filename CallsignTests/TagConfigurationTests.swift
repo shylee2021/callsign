@@ -5,7 +5,6 @@ import SwiftUI
 import Testing
 @testable import Callsign
 
-@MainActor
 struct TagConfigurationTests {
     @Test func badgePlacementAndOffsets() {
         let thumbnail = CGRect(x: 100, y: 200, width: 400, height: 300)
@@ -207,16 +206,17 @@ struct TagConfigurationTests {
             textRed: 0.5, textGreen: 0.6, textBlue: 0.7, textAlpha: 0.8)
         custom.save(to: defaults)
         #expect(TagConfiguration.load(from: defaults) == custom)
+        // Literal on-disk names: a renamed key would silently drop saved preferences.
         #expect(defaults.string(forKey: "tag.position") == "rightCenter")
         #expect(defaults.double(forKey: "tag.textBlue") == 0.7)
-        defaults.set(0.5, forKey: "tag.appearDelay")
+        defaults.set(0.5, forKey: PreferenceKey.appearDelay)
         #expect(TagConfiguration.load(from: defaults) == custom)
-        #expect(defaults.object(forKey: "tag.appearDelay") == nil)
+        #expect(defaults.object(forKey: PreferenceKey.appearDelay) == nil)
 
-        defaults.set("unknown", forKey: "tag.position")
-        defaults.set(Double.infinity, forKey: "tag.scale")
-        defaults.set(900, forKey: "tag.offsetX")
-        defaults.set(-1, forKey: "tag.alpha")
+        defaults.set("unknown", forKey: PreferenceKey.position)
+        defaults.set(Double.infinity, forKey: PreferenceKey.tag("scale"))
+        defaults.set(900, forKey: PreferenceKey.tag("offsetX"))
+        defaults.set(-1, forKey: PreferenceKey.tag("alpha"))
         let validated = TagConfiguration.load(from: defaults)
         #expect(validated.position == TagConfiguration.default.position)
         #expect(validated.scale == TagConfiguration.default.scale)
@@ -224,10 +224,10 @@ struct TagConfigurationTests {
         #expect(validated.alpha == 0)
         #expect(validated.textBlue == custom.textBlue)
 
-        defaults.set(true, forKey: "app.showInDock")
+        defaults.set(true, forKey: PreferenceKey.showInDock)
         TagConfiguration.default.save(to: defaults)
         #expect(TagConfiguration.load(from: defaults) == .default)
-        #expect(defaults.bool(forKey: "app.showInDock"))
+        #expect(defaults.bool(forKey: PreferenceKey.showInDock))
     }
 
     @Test func changedPreferencesSaveOnlyTheirKeys() throws {
@@ -235,13 +235,24 @@ struct TagConfigurationTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
 
-        defaults.set(0.3, forKey: "tag.red")
+        defaults.set(0.3, forKey: PreferenceKey.tag("red"))
         var changed = TagConfiguration.default
         changed.scale = 1.2
         changed.save(to: defaults, changedFrom: .default)
-        #expect(defaults.double(forKey: "tag.scale") == 1.2)
-        #expect(defaults.double(forKey: "tag.red") == 0.3)
-        #expect(defaults.object(forKey: "tag.position") == nil)
+        #expect(defaults.double(forKey: PreferenceKey.tag("scale")) == 1.2)
+        #expect(defaults.double(forKey: PreferenceKey.tag("red")) == 0.3)
+        #expect(defaults.object(forKey: PreferenceKey.position) == nil)
+    }
+
+    @Test func preferenceKeysKeepTheirOnDiskNames() {
+        #expect(PreferenceKey.enabled == "app.enabled")
+        #expect(PreferenceKey.showInDock == "app.showInDock")
+        #expect(PreferenceKey.hasOpenedSettings == "app.hasOpenedSettings")
+        #expect(PreferenceKey.position == "tag.position")
+        #expect(PreferenceKey.label == "tag.label")
+        #expect(PreferenceKey.liquidGlass == "tag.liquidGlass")
+        #expect(PreferenceKey.appearDelay == "tag.appearDelay")
+        #expect(PreferenceKey.tag("offsetX") == "tag.offsetX")
     }
 
     @Test func labelSelectionAndFallback() {

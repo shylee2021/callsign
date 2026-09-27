@@ -10,7 +10,6 @@ struct AppIdentity {
     let icon: NSImage
 }
 
-@MainActor
 final class AppIdentityCache {
     private(set) var identities: [pid_t: AppIdentity] = [:]
     private let workspaceCenter = NSWorkspace.shared.notificationCenter

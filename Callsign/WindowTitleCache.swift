@@ -7,7 +7,6 @@
 import AppKit
 import os
 
-@MainActor
 final class WindowTitleCache {
     private(set) var windowTitles: [pid_t: [CGWindowID: String]] = [:]
     // Called when a background read publishes titles, so badges refresh without waiting for the 10 Hz cap.

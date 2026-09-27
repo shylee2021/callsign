@@ -122,7 +122,6 @@ enum ProbeStatus: Equatable {
     }
 }
 
-@MainActor
 @Observable
 final class MissionControlProbe {
     private(set) var isTrusted: Bool

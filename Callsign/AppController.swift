@@ -2,7 +2,6 @@ import AppKit
 import Observation
 import ServiceManagement
 
-@MainActor
 @Observable
 final class AppController {
     let probe = MissionControlProbe()
@@ -16,13 +15,13 @@ final class AppController {
     }
     var isEnabled: Bool {
         didSet {
-            defaults.set(isEnabled, forKey: "app.enabled")
+            defaults.set(isEnabled, forKey: PreferenceKey.enabled)
             updatePolling()
         }
     }
     var showInDock: Bool {
         didSet {
-            defaults.set(showInDock, forKey: "app.showInDock")
+            defaults.set(showInDock, forKey: PreferenceKey.showInDock)
             applyDockVisibility()
         }
     }
@@ -34,15 +33,15 @@ final class AppController {
     }
 
     var isPolling: Bool { pollingTask != nil }
-    var hasOpenedSettings: Bool { defaults.bool(forKey: "app.hasOpenedSettings") }
+    var hasOpenedSettings: Bool { defaults.bool(forKey: PreferenceKey.hasOpenedSettings) }
     var launchAtLogin: Bool { loginStatus == .enabled || loginStatus == .requiresApproval }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        defaults.register(defaults: ["app.enabled": true])
+        defaults.register(defaults: [PreferenceKey.enabled: true])
         configuration = TagConfiguration.load(from: defaults)
-        isEnabled = defaults.bool(forKey: "app.enabled")
-        showInDock = defaults.bool(forKey: "app.showInDock")
+        isEnabled = defaults.bool(forKey: PreferenceKey.enabled)
+        showInDock = defaults.bool(forKey: PreferenceKey.showInDock)
     }
 
     func start() {
@@ -104,7 +103,7 @@ final class AppController {
     }
 
     func settingsDidAppear() {
-        defaults.set(true, forKey: "app.hasOpenedSettings")
+        defaults.set(true, forKey: PreferenceKey.hasOpenedSettings)
         refreshLoginStatus()
     }
 }

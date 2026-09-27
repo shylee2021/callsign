@@ -4,7 +4,6 @@ import CoreGraphics
 import Testing
 @testable import Callsign
 
-@MainActor
 struct WindowDiscoveryTests {
     @Test func windowServerThumbnailsExcludeSystemOverlays() {
         let frame = CGRect(x: 100, y: 200, width: 400, height: 300)

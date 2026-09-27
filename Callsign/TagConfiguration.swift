@@ -6,6 +6,21 @@
 import CoreGraphics
 import Foundation
 
+// UserDefaults keys as stored on disk; renaming one silently drops users' saved preferences.
+enum PreferenceKey {
+    static let enabled = "app.enabled"
+    static let showInDock = "app.showInDock"
+    static let hasOpenedSettings = "app.hasOpenedSettings"
+    static let position = "tag.position"
+    static let label = "tag.label"
+    static let liquidGlass = "tag.liquidGlass"
+    // Retired; removed on load.
+    static let appearDelay = "tag.appearDelay"
+
+    // Numeric tag preferences are stored under their property names, e.g. "tag.textBlue".
+    static func tag(_ name: String) -> String { "tag.\(name)" }
+}
+
 enum TagPosition: String, CaseIterable, Identifiable {
     case topLeft, topCenter, topRight, leftCenter, rightCenter, bottomLeft, bottomCenter, bottomRight
 
@@ -79,15 +94,15 @@ struct TagConfiguration: Hashable {
 
     static func load(from defaults: UserDefaults) -> Self {
         // One-time cleanup of a retired preference.
-        defaults.removeObject(forKey: "tag.appearDelay")
+        defaults.removeObject(forKey: PreferenceKey.appearDelay)
         var configuration = Self.default
-        configuration.position = TagPosition(rawValue: defaults.string(forKey: "tag.position") ?? "")
+        configuration.position = TagPosition(rawValue: defaults.string(forKey: PreferenceKey.position) ?? "")
             ?? Self.default.position
-        configuration.label = TagLabel(rawValue: defaults.string(forKey: "tag.label") ?? "")
+        configuration.label = TagLabel(rawValue: defaults.string(forKey: PreferenceKey.label) ?? "")
             ?? Self.default.label
-        configuration.liquidGlass = defaults.object(forKey: "tag.liquidGlass") as? Bool ?? false
-        for (key, path, range) in numericPreferences {
-            guard let value = defaults.object(forKey: "tag.\(key)") as? Double, value.isFinite else { continue }
+        configuration.liquidGlass = defaults.object(forKey: PreferenceKey.liquidGlass) as? Bool ?? false
+        for (name, path, range) in numericPreferences {
+            guard let value = defaults.object(forKey: PreferenceKey.tag(name)) as? Double, value.isFinite else { continue }
             configuration[keyPath: path] = min(max(value, range.lowerBound), range.upperBound)
         }
         return configuration
@@ -95,11 +110,11 @@ struct TagConfiguration: Hashable {
 
     // Without a previous value, writes every preference.
     func save(to defaults: UserDefaults, changedFrom old: Self? = nil) {
-        if position != old?.position { defaults.set(position.rawValue, forKey: "tag.position") }
-        if label != old?.label { defaults.set(label.rawValue, forKey: "tag.label") }
-        if liquidGlass != old?.liquidGlass { defaults.set(liquidGlass, forKey: "tag.liquidGlass") }
-        for (key, path, _) in Self.numericPreferences where self[keyPath: path] != old?[keyPath: path] {
-            defaults.set(self[keyPath: path], forKey: "tag.\(key)")
+        if position != old?.position { defaults.set(position.rawValue, forKey: PreferenceKey.position) }
+        if label != old?.label { defaults.set(label.rawValue, forKey: PreferenceKey.label) }
+        if liquidGlass != old?.liquidGlass { defaults.set(liquidGlass, forKey: PreferenceKey.liquidGlass) }
+        for (name, path, _) in Self.numericPreferences where self[keyPath: path] != old?[keyPath: path] {
+            defaults.set(self[keyPath: path], forKey: PreferenceKey.tag(name))
         }
     }
 

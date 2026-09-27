@@ -2,7 +2,6 @@ import AppKit
 import Testing
 @testable import Callsign
 
-@MainActor
 struct AppIdentityCacheTests {
     private func window(pid: pid_t, owner: String) -> WindowInfo {
         WindowInfo(id: 1, pid: pid, owner: owner, title: "", frame: .zero, layer: 0, alpha: 1)

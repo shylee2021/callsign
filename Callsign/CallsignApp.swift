@@ -32,7 +32,6 @@ struct CallsignApp: App {
     }
 }
 
-@MainActor
 final class CallsignAppDelegate: NSObject, NSApplicationDelegate {
     let controller = AppController()
 

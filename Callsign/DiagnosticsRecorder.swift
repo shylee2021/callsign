@@ -7,7 +7,6 @@
 import AppKit
 import Observation
 
-@MainActor
 @Observable
 final class DiagnosticsRecorder {
     private(set) var report = ""
@@ -61,7 +60,21 @@ final class DiagnosticsRecorder {
         let tree = dumpTree(missionControl, depth: 0, remaining: &remaining)
             .joined(separator: "\n")
         let timing = settledMilliseconds.map { "~\($0) ms from transition detection to settled" } ?? "Not measured"
-        return "SETTLE TIMING\n\(timing) (2 unchanged polls: ~66 ms after entry or a move, 33–133 ms after a Space change; \(MissionControlProbe.activePollDelay) ms poll delay + API overhead)\nDetection: Dock Accessibility, window geometry and Space notifications. No global input monitoring.\n\nMISSION CONTROL AX TREE\n\(tree)\n\nON-SCREEN WINDOWS\n\(windowReport(dockPID: dockPID, windows: windows))\n\nPRIVATE API\n\(PrivateAPI.report)"
+        return """
+            SETTLE TIMING
+            \(timing) (2 unchanged polls: ~66 ms after entry or a move, 33–133 ms after a Space change; \
+            \(MissionControlProbe.activePollDelay) ms poll delay + API overhead)
+            Detection: Dock Accessibility, window geometry and Space notifications. No global input monitoring.
+
+            MISSION CONTROL AX TREE
+            \(tree)
+
+            ON-SCREEN WINDOWS
+            \(windowReport(dockPID: dockPID, windows: windows))
+
+            PRIVATE API
+            \(PrivateAPI.report)
+            """
     }
 
     private static func dumpTree(

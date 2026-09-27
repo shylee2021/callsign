@@ -205,7 +205,7 @@ struct ContentView: View {
                              blue: configuration[keyPath: blue], opacity: configuration[keyPath: alpha])
             },
             set: { value in
-                guard let color = NSColor(value).usingColorSpace(.deviceRGB) else { return }
+                guard let color = NSColor(value).usingColorSpace(.sRGB) else { return }
                 var configuration = controller.configuration
                 configuration[keyPath: red] = color.redComponent
                 configuration[keyPath: green] = color.greenComponent

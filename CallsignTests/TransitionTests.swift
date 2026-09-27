@@ -2,7 +2,6 @@ import AppKit
 import Testing
 @testable import Callsign
 
-@MainActor
 struct TransitionTests {
     private let thumbnail = CGRect(x: 100, y: 200, width: 400, height: 300)
 
