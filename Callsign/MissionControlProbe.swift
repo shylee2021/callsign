@@ -135,6 +135,7 @@ final class MissionControlProbe: ObservableObject {
     private let overlays = OverlayManager()
     private let workspaceCenter = NSWorkspace.shared.notificationCenter
     private var spaceObserver: NSObjectProtocol?
+    private var terminateObserver: NSObjectProtocol?
     private var phase = MissionControlPhase.normal
     private var stability = ThumbnailStability()
     private var settleStartedAt = 0.0
@@ -148,6 +149,8 @@ final class MissionControlProbe: ObservableObject {
     private var requestedTitleIDs: Set<CGWindowID> = []
 
     init() {
+        // A per-element timeout covers only that element, so bound every AX read, including Dock children.
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 0.2)
         spaceObserver = workspaceCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -157,10 +160,21 @@ final class MissionControlProbe: ObservableObject {
                 self.suspendBadges()
             }
         }
+        terminateObserver = workspaceCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            // PIDs are recycled, so a quit app's identity must not outlive it.
+            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            let pid = app.processIdentifier
+            MainActor.assumeIsolated {
+                self?.appCache[pid] = nil
+            }
+        }
     }
 
     deinit {
         if let spaceObserver { workspaceCenter.removeObserver(spaceObserver) }
+        if let terminateObserver { workspaceCenter.removeObserver(terminateObserver) }
     }
 
     func requestAccess() {
@@ -310,7 +324,6 @@ final class MissionControlProbe: ObservableObject {
             withBundleIdentifier: "com.apple.dock").first else { return nil }
 
         let dockElement = AXUIElementCreateApplication(dock.processIdentifier)
-        AXUIElementSetMessagingTimeout(dockElement, 0.2)
         // Mission Control lives in the Dock's AX tree; these identifiers are macOS internals.
         guard let group = children(of: dockElement).first(where: {
             stringAttribute("AXIdentifier", of: $0) == "mc"
