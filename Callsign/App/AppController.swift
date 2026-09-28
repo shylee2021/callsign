@@ -1,14 +1,20 @@
 import AppKit
 import Observation
 import ServiceManagement
+import Sparkle
 
+// NSObject subclass because Sparkle's delegate protocol is Objective-C.
 @Observable
-final class AppController {
+final class AppController: NSObject, SPUUpdaterDelegate {
     let probe = MissionControlProbe()
     private let defaults: UserDefaults
     private var pollingTask: Task<Void, Never>?
     private var started = false
     private(set) var settingsRequest = 0
+    // Mirrors Sparkle's canCheckForUpdates so the menu item can observe it.
+    private(set) var canCheckForUpdates = false
+    @ObservationIgnored private var updaterController: SPUStandardUpdaterController?
+    @ObservationIgnored private var canCheckObservation: NSKeyValueObservation?
 
     var configuration: TagConfiguration {
         didSet { configuration.save(to: defaults, changedFrom: oldValue) }
@@ -24,6 +30,9 @@ final class AppController {
             defaults.set(showInDock, forKey: PreferenceKey.showInDock)
             applyDockVisibility()
         }
+    }
+    var updateChannel: UpdateChannel {
+        didSet { defaults.set(updateChannel.rawValue, forKey: PreferenceKey.updateChannel) }
     }
     private(set) var loginStatus = SMAppService.mainApp.status
     private(set) var loginError: String?
@@ -42,6 +51,8 @@ final class AppController {
         configuration = TagConfiguration.load(from: defaults)
         isEnabled = defaults.bool(forKey: PreferenceKey.enabled)
         showInDock = defaults.bool(forKey: PreferenceKey.showInDock)
+        updateChannel = UpdateChannel(rawValue: defaults.string(forKey: PreferenceKey.updateChannel) ?? "") ?? .stable
+        super.init()
     }
 
     func start() {
@@ -72,6 +83,32 @@ final class AppController {
             }
         }
     }
+
+    // MARK: Updates
+
+    // Called by the app delegate only; previews and the test runner never create an updater.
+    func startUpdater() {
+        guard !Self.isPreview, updaterController == nil else { return }
+        let controller = SPUStandardUpdaterController(
+            startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
+        updaterController = controller
+        canCheckObservation = controller.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) {
+            [weak self] _, change in
+            guard let value = change.newValue else { return }
+            Task { @MainActor in self?.canCheckForUpdates = value }
+        }
+    }
+
+    func checkForUpdates() {
+        updaterController?.checkForUpdates(nil)
+    }
+
+    // Sparkle calls its delegate on the main thread.
+    nonisolated func allowedChannels(for updater: SPUUpdater) -> Set<String> {
+        MainActor.assumeIsolated { updateChannel.allowedSparkleChannels }
+    }
+
+    // MARK: Dock, login item, settings
 
     func applyDockVisibility() {
         guard !Self.isPreview else { return }

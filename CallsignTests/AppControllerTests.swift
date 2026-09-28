@@ -72,6 +72,15 @@ struct AppControllerTests {
             #expect(AppController(defaults: defaults).isEnabled == enabled)
             #expect(!controller.isPolling)
         }
+        // The update channel picker is segmented so the real AppKit control can be driven here.
+        let channelPicker = try #require(descendants(of: host.view).compactMap { $0 as? NSSegmentedControl }.first {
+            $0.segmentCount == 2 && $0.label(forSegment: 0) == "Stable" && $0.label(forSegment: 1) == "Beta"
+        })
+        #expect(channelPicker.selectedSegment == 0)
+        channelPicker.selectedSegment = 1
+        #expect(channelPicker.sendAction(channelPicker.action, to: channelPicker.target))
+        #expect(controller.updateChannel == .beta)
+        #expect(AppController(defaults: defaults).updateChannel == .beta)
 
         func selectPage(_ selection: SettingsPage) async throws -> NSView {
             host.rootView = page(selection)
@@ -114,7 +123,8 @@ struct AppControllerTests {
         #expect(abs(preferredSize.width - 600) < 1)
         #expect(descendants(of: about).compactMap { $0 as? NSColorWell }.isEmpty)
         let general = try await selectPage(.general)
-        #expect(descendants(of: general).compactMap { $0 as? NSSegmentedControl }.isEmpty)
+        // Only the update channel picker; the label picker belongs to Appearance.
+        #expect(descendants(of: general).compactMap { $0 as? NSSegmentedControl }.count == 1)
         #expect(descendants(of: general).compactMap { $0 as? NSColorWell }.isEmpty)
         #expect(abs(preferredSize.height - generalHeight) < 1)
         let appearance = try await selectPage(.appearance)
@@ -185,6 +195,27 @@ struct AppControllerTests {
         #expect(window.title == "Appearance")
         let appearanceHeight = try #require(settledHeights["Appearance"])
         #expect(abs(window.frame.height - appearanceHeight) <= 1)
+    }
+
+    @Test func updateChannelsMapToSparkleChannels() {
+        #expect(UpdateChannel.stable.allowedSparkleChannels.isEmpty)
+        #expect(UpdateChannel.beta.allowedSparkleChannels == ["beta"])
+    }
+
+    @Test func updateChannelPersistsAndUnknownValuesFallBackToStable() throws {
+        let suite = "CallsignTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let controller = AppController(defaults: defaults)
+        #expect(controller.updateChannel == .stable)
+
+        controller.updateChannel = .beta
+        #expect(defaults.string(forKey: PreferenceKey.updateChannel) == "beta")
+        #expect(AppController(defaults: defaults).updateChannel == .beta)
+
+        // A value written by a future version must not break an older app.
+        defaults.set("alpha", forKey: PreferenceKey.updateChannel)
+        #expect(AppController(defaults: defaults).updateChannel == .stable)
     }
 
     @Test func settingsRequestsDoNotControlTheEngineAndPauseStopsIt() throws {

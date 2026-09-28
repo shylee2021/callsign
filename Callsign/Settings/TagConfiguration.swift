@@ -11,6 +11,7 @@ enum PreferenceKey {
     static let enabled = "app.enabled"
     static let showInDock = "app.showInDock"
     static let hasOpenedSettings = "app.hasOpenedSettings"
+    static let updateChannel = "app.updateChannel"
     static let position = "tag.position"
     static let label = "tag.label"
     static let liquidGlass = "tag.liquidGlass"
@@ -19,6 +20,28 @@ enum PreferenceKey {
 
     // Numeric tag preferences are stored under their property names, e.g. "tag.textBlue".
     static func tag(_ name: String) -> String { "tag.\(name)" }
+}
+
+// Stored as a string so more channels (alpha) can be added without migrating the preference.
+enum UpdateChannel: String, CaseIterable, Identifiable {
+    case stable, beta
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .stable: "Stable"
+        case .beta: "Beta"
+        }
+    }
+
+    // Sparkle always includes its default channel; only the extra channels are listed.
+    var allowedSparkleChannels: Set<String> {
+        switch self {
+        case .stable: []
+        case .beta: ["beta"]
+        }
+    }
 }
 
 enum TagPosition: String, CaseIterable, Identifiable {

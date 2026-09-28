@@ -42,6 +42,7 @@ final class CallsignAppDelegate: NSObject, NSApplicationDelegate {
               NSClassFromString("XCTestCase") == nil else { return }
         controller.applyDockVisibility()
         controller.start()
+        controller.startUpdater()
         if !controller.hasOpenedSettings { controller.showSettings() }
     }
 
@@ -64,6 +65,8 @@ private struct CallsignMenu: View {
         Button(controller.isEnabled ? "Pause Callsign" : "Resume Callsign") {
             controller.isEnabled.toggle()
         }
+        Button("Check for Updates…", action: controller.checkForUpdates)
+            .disabled(!controller.canCheckForUpdates)
         Button("Settings…", action: controller.showSettings)
             .keyboardShortcut(",")
         Divider()
