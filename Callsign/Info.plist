@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Sparkle. Everything else in Info.plist is generated from build settings. -->
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://shylee2021.github.io/callsign/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>oqwjnVS50FRy3VExwDooqxiV+vPXiCJwRnLksDOkXX0=</string>
+</dict>
+</plist>
