@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- release.yml patches method and signingCertificate (and adds teamID) when a Developer ID certificate is available. -->
+  <key>method</key>
+  <string>mac-application</string>
+  <key>signingStyle</key>
+  <string>manual</string>
+  <key>signingCertificate</key>
+  <string>-</string>
+  <key>destination</key>
+  <string>export</string>
+</dict>
+</plist>

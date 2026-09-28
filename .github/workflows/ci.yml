@@ -38,3 +38,9 @@ jobs:
           -derivedDataPath /tmp/dd
           CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ${{ matrix.extra }}
           -skipPackagePluginValidation
+  appcast:
+    name: Appcast tool tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s Tools -p 'test_*.py' -v
