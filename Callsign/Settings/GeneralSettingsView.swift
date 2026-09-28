@@ -18,8 +18,10 @@ struct GeneralSettingsView: View {
                 .help("Beta builds may be less stable. The beta channel also receives stable releases.")
             }
             Section {
+                // An explicit closure, not a method reference: Swift 6.2 (Xcode 26.6) crashes
+                // generating the isolation thunk for the reference form.
                 Toggle("Launch at login", isOn: Binding(
-                    get: { controller.launchAtLogin }, set: controller.setLaunchAtLogin))
+                    get: { controller.launchAtLogin }, set: { controller.setLaunchAtLogin($0) }))
                 if controller.loginStatus == .requiresApproval {
                     LabeledContent("Approval needed in System Settings") {
                         Button("Review…") { SMAppService.openSystemSettingsLoginItems() }
