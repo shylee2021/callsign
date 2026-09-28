@@ -16,11 +16,14 @@ jobs:
           - name: macOS 27
             runner: xcode-27
             required: true
-          # macOS 26.6 with Xcode 26.6, GitHub's newest GA image. Fallback probe only:
-          # Xcode 26.6 currently fails on AppIcon.icon before compiling any Swift.
+            extra: ""
+          # macOS 26.6 with Xcode 26.6, GitHub's newest GA image. Fallback probe only.
+          # Its actool cannot read the Xcode 27 Icon Composer manifest, and the unit
+          # tests never need the icon, so it is left out of this job's build.
           - name: macOS 26
             runner: macos-26
             required: false
+            extra: EXCLUDED_SOURCE_FILE_NAMES=AppIcon.icon ASSETCATALOG_COMPILER_APPICON_NAME=
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ !matrix.required }}
     steps:
@@ -33,5 +36,5 @@ jobs:
         run: >
           xcodebuild test -scheme Callsign -testPlan Unit
           -derivedDataPath /tmp/dd
-          CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
+          CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ${{ matrix.extra }}
           -skipPackagePluginValidation
