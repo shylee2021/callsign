@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		5FBFE8D2306A8A69004290E9 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 5FBFE8D1306A8A69004290E9 /* Sparkle */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		CA115190000000000000000B /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -39,6 +43,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5FBFE8D2306A8A69004290E9 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -90,6 +95,7 @@
 			);
 			name = Callsign;
 			packageProductDependencies = (
+				5FBFE8D1306A8A69004290E9 /* Sparkle */,
 			);
 			productName = Callsign;
 			productReference = 5FD95D56303C9AB200AA7C58 /* Callsign.app */;
@@ -146,6 +152,9 @@
 			);
 			mainGroup = 5FD95D4D303C9AB200AA7C58;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				5FBFE8D0306A8A69004290E9 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 5FD95D57303C9AB200AA7C58 /* Products */;
 			projectDirPath = "";
@@ -463,6 +472,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		5FBFE8D0306A8A69004290E9 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.10.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		5FBFE8D1306A8A69004290E9 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5FBFE8D0306A8A69004290E9 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 5FD95D4E303C9AB200AA7C58 /* Project object */;
 }
