@@ -34,7 +34,7 @@ struct AppControllerTests {
                 switch page {
                 case .general: GeneralSettingsView(controller: controller)
                 case .appearance: AppearanceSettingsView(controller: controller)
-                case .about: AboutSettingsView()
+                case .about: AboutSettingsView(controller: controller)
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -72,16 +72,6 @@ struct AppControllerTests {
             #expect(AppController(defaults: defaults).isEnabled == enabled)
             #expect(!controller.isPolling)
         }
-        // The update channel picker is segmented so the real AppKit control can be driven here.
-        let channelPicker = try #require(descendants(of: host.view).compactMap { $0 as? NSSegmentedControl }.first {
-            $0.segmentCount == 2 && $0.label(forSegment: 0) == "Stable" && $0.label(forSegment: 1) == "Beta"
-        })
-        #expect(channelPicker.selectedSegment == 0)
-        channelPicker.selectedSegment = 1
-        #expect(channelPicker.sendAction(channelPicker.action, to: channelPicker.target))
-        #expect(controller.updateChannel == .beta)
-        #expect(AppController(defaults: defaults).updateChannel == .beta)
-
         func selectPage(_ selection: SettingsPage) async throws -> NSView {
             host.rootView = page(selection)
             try await settle()
@@ -119,12 +109,20 @@ struct AppControllerTests {
 
         let about = try await selectPage(.about)
         let aboutHeight = preferredSize.height
-        #expect(appearanceHeight > generalHeight && generalHeight > aboutHeight)
+        #expect(appearanceHeight > generalHeight && appearanceHeight > aboutHeight)
         #expect(abs(preferredSize.width - 600) < 1)
         #expect(descendants(of: about).compactMap { $0 as? NSColorWell }.isEmpty)
+        // The update channel picker is segmented so the real AppKit control can be driven here.
+        let channelPicker = try #require(descendants(of: about).compactMap { $0 as? NSSegmentedControl }.first {
+            $0.segmentCount == 2 && $0.label(forSegment: 0) == "Stable" && $0.label(forSegment: 1) == "Beta"
+        })
+        #expect(channelPicker.selectedSegment == 0)
+        channelPicker.selectedSegment = 1
+        #expect(channelPicker.sendAction(channelPicker.action, to: channelPicker.target))
+        #expect(controller.updateChannel == .beta)
+        #expect(AppController(defaults: defaults).updateChannel == .beta)
         let general = try await selectPage(.general)
-        // Only the update channel picker; the label picker belongs to Appearance.
-        #expect(descendants(of: general).compactMap { $0 as? NSSegmentedControl }.count == 1)
+        #expect(descendants(of: general).compactMap { $0 as? NSSegmentedControl }.isEmpty)
         #expect(descendants(of: general).compactMap { $0 as? NSColorWell }.isEmpty)
         #expect(abs(preferredSize.height - generalHeight) < 1)
         let appearance = try await selectPage(.appearance)

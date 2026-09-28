@@ -34,6 +34,10 @@ final class AppController: NSObject, SPUUpdaterDelegate {
     var updateChannel: UpdateChannel {
         didSet { defaults.set(updateChannel.rawValue, forKey: PreferenceKey.updateChannel) }
     }
+    // Sparkle persists this itself under SUEnableAutomaticChecks; Info.plist sets the default.
+    var automaticallyChecksForUpdates: Bool {
+        didSet { updaterController?.updater.automaticallyChecksForUpdates = automaticallyChecksForUpdates }
+    }
     private(set) var loginStatus = SMAppService.mainApp.status
     private(set) var loginError: String?
 
@@ -52,6 +56,7 @@ final class AppController: NSObject, SPUUpdaterDelegate {
         isEnabled = defaults.bool(forKey: PreferenceKey.enabled)
         showInDock = defaults.bool(forKey: PreferenceKey.showInDock)
         updateChannel = UpdateChannel(rawValue: defaults.string(forKey: PreferenceKey.updateChannel) ?? "") ?? .stable
+        automaticallyChecksForUpdates = defaults.object(forKey: "SUEnableAutomaticChecks") as? Bool ?? true
         super.init()
     }
 
@@ -92,6 +97,8 @@ final class AppController: NSObject, SPUUpdaterDelegate {
         let controller = SPUStandardUpdaterController(
             startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
         updaterController = controller
+        // Sparkle's stored value wins over the Info.plist default once it is running.
+        automaticallyChecksForUpdates = controller.updater.automaticallyChecksForUpdates
         canCheckObservation = controller.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) {
             [weak self] _, change in
             guard let value = change.newValue else { return }

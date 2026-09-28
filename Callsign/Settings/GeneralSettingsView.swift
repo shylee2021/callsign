@@ -11,11 +11,6 @@ struct GeneralSettingsView: View {
             Section {
                 Toggle("Enable Callsign", isOn: $controller.isEnabled)
                     .toggleStyle(.switch)
-                Picker("Update channel", selection: $controller.updateChannel) {
-                    ForEach(UpdateChannel.allCases) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .help("Beta builds may be less stable. The beta channel also receives stable releases.")
             }
             Section {
                 // An explicit closure, not a method reference: Swift 6.2 (Xcode 26.6) crashes

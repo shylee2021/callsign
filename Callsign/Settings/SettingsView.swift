@@ -21,7 +21,7 @@ struct SettingsView: View {
                 AppearanceSettingsView(controller: controller)
             }
             Tab("About", systemImage: "info.circle", value: .about) {
-                AboutSettingsView()
+                AboutSettingsView(controller: controller)
             }
         }
         .frame(width: 600)

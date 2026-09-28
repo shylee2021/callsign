@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 
 struct AboutSettingsView: View {
+    @Bindable var controller: AppController
+
     var body: some View {
         // Same grouped form as the other panes, so the card is system-drawn on every macOS version.
         Form {
@@ -23,6 +25,19 @@ struct AboutSettingsView: View {
                 }
                 .padding(.vertical, 8)
             }
+            Section("Updates") {
+                Toggle("Check for updates automatically", isOn: $controller.automaticallyChecksForUpdates)
+                Picker("Update channel", selection: $controller.updateChannel) {
+                    ForEach(UpdateChannel.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .help("Beta builds may be less stable. The beta channel also receives stable releases.")
+                LabeledContent("") {
+                    Button("Check for Updates…", action: controller.checkForUpdates)
+                        .disabled(!controller.canCheckForUpdates)
+                }
+            }
+            .disabled(AppController.isPreview)
         }
         .formStyle(.grouped)
     }
