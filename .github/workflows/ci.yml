@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    name: Unit tests (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Xcode 27 is what the project is built with. The label is a GitHub preview.
+          - runner: xcode-27
+            required: true
+          # GA image with Xcode 26.6: tells us whether it can serve as a fallback runner.
+          - runner: macos-26
+            required: false
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ !matrix.required }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          sw_vers -productVersion
+          xcodebuild -version
+      - name: Unit test plan
+        run: >
+          xcodebuild test -scheme Callsign -testPlan Unit
+          -derivedDataPath /tmp/dd
+          CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
+          -skipPackagePluginValidation
