@@ -12,7 +12,8 @@ struct SettingsView: View {
     @State private var transitionGeneration = 0
 
     var body: some View {
-        TabView(selection: Binding(get: { selection }, set: selectPage)) {
+        // Closure, not a method reference: Swift 6.2 crashes generating the isolation thunk.
+        TabView(selection: Binding(get: { selection }, set: { selectPage($0) })) {
             Tab("General", systemImage: "gearshape", value: .general) {
                 GeneralSettingsView(controller: controller)
             }
