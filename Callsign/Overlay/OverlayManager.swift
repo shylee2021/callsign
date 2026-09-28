@@ -121,6 +121,11 @@ final class BadgePanel {
             configuration: TagConfiguration(liquidGlass: liquidGlass)))
         // We size the panel explicitly; only intrinsic sizing is needed for fittingSize.
         hostingView.sizingOptions = [.intrinsicContentSize]
+        // macOS 26 fills the active glass window's content rect with a backdrop; clip it to the pill.
+        if liquidGlass {
+            hostingView.wantsLayer = true
+            hostingView.layer?.masksToBounds = true
+        }
         if liquidGlass {
             window = GlassBadgeWindow(
                 contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
@@ -169,6 +174,8 @@ final class BadgePanel {
             hostingView.frame = NSRect(origin: .zero, size: NSSize(
                 width: min(max(fittingSize.width, 44 * configuration.scale), 300 * configuration.scale),
                 height: max(fittingSize.height, 38 * configuration.scale)))
+            // Same radius as BadgeView's shape.
+            hostingView.layer?.cornerRadius = 11 * configuration.scale
         }
 
         let size = hostingView.frame.size
