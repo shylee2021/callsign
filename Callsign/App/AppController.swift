@@ -34,9 +34,12 @@ final class AppController: NSObject, SPUUpdaterDelegate {
     var updateChannel: UpdateChannel {
         didSet { defaults.set(updateChannel.rawValue, forKey: PreferenceKey.updateChannel) }
     }
-    // Sparkle persists this itself under SUEnableAutomaticChecks; Info.plist sets the default.
+    // Sparkle persists these itself (SUEnableAutomaticChecks, SUAutomaticallyUpdate).
     var automaticallyChecksForUpdates: Bool {
         didSet { updaterController?.updater.automaticallyChecksForUpdates = automaticallyChecksForUpdates }
+    }
+    var automaticallyDownloadsUpdates: Bool {
+        didSet { updaterController?.updater.automaticallyDownloadsUpdates = automaticallyDownloadsUpdates }
     }
     private(set) var loginStatus = SMAppService.mainApp.status
     private(set) var loginError: String?
@@ -57,6 +60,7 @@ final class AppController: NSObject, SPUUpdaterDelegate {
         showInDock = defaults.bool(forKey: PreferenceKey.showInDock)
         updateChannel = UpdateChannel(rawValue: defaults.string(forKey: PreferenceKey.updateChannel) ?? "") ?? .stable
         automaticallyChecksForUpdates = defaults.object(forKey: "SUEnableAutomaticChecks") as? Bool ?? true
+        automaticallyDownloadsUpdates = defaults.object(forKey: "SUAutomaticallyUpdate") as? Bool ?? false
         super.init()
     }
 
@@ -97,8 +101,9 @@ final class AppController: NSObject, SPUUpdaterDelegate {
         let controller = SPUStandardUpdaterController(
             startingUpdater: true, updaterDelegate: self, userDriverDelegate: nil)
         updaterController = controller
-        // Sparkle's stored value wins over the Info.plist default once it is running.
+        // Sparkle's stored values win over the Info.plist defaults once it is running.
         automaticallyChecksForUpdates = controller.updater.automaticallyChecksForUpdates
+        automaticallyDownloadsUpdates = controller.updater.automaticallyDownloadsUpdates
         canCheckObservation = controller.updater.observe(\.canCheckForUpdates, options: [.initial, .new]) {
             [weak self] _, change in
             guard let value = change.newValue else { return }

@@ -27,6 +27,9 @@ struct AboutSettingsView: View {
             }
             Section("Updates") {
                 Toggle("Check for updates automatically", isOn: $controller.automaticallyChecksForUpdates)
+                Toggle("Download and install automatically", isOn: $controller.automaticallyDownloadsUpdates)
+                    .disabled(!controller.automaticallyChecksForUpdates)
+                    .help("Installs on the next relaunch. Otherwise Sparkle asks before installing.")
                 Picker("Update channel", selection: $controller.updateChannel) {
                     ForEach(UpdateChannel.allCases) { Text($0.title).tag($0) }
                 }
