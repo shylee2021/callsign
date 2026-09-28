@@ -7,16 +7,19 @@ on:
 
 jobs:
   unit:
-    name: Unit tests (${{ matrix.runner }})
+    name: Unit tests on ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Xcode 27 is what the project is built with. The label is a GitHub preview.
-          - runner: xcode-27
+          # GitHub has no macos-27 label yet; the Xcode 27 preview image runs macOS 27.0.
+          - name: macOS 27
+            runner: xcode-27
             required: true
-          # GA image with Xcode 26.6: tells us whether it can serve as a fallback runner.
-          - runner: macos-26
+          # macOS 26.6 with Xcode 26.6, GitHub's newest GA image. Fallback probe only:
+          # Xcode 26.6 currently fails on AppIcon.icon before compiling any Swift.
+          - name: macOS 26
+            runner: macos-26
             required: false
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ !matrix.required }}
