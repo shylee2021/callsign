@@ -134,8 +134,7 @@ final class BadgePanel {
         window.contentView = hostingView
         window.backgroundColor = .clear
         window.isOpaque = false
-        // Glass draws its own edge; the AppKit shadow follows the rectangular frame on macOS 26.
-        window.hasShadow = !liquidGlass
+        window.hasShadow = true
         window.hidesOnDeactivate = false
         window.ignoresMouseEvents = true
         window.isExcludedFromWindowsMenu = true
