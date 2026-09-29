@@ -12,7 +12,8 @@
 <!-- ABOUT-->
 ## About
 
-![Mission Control with a Callsign tag on every window](.github/assets/screenshot.jpg)
+<!-- Demo video -->
+https://github.com/user-attachments/assets/5642cb45-4298-4b81-8ac6-0b3612a1a0a8
 
 Callsign adds tags to windows in Mission Control, showing the app name or window title so you can quickly tell them apart.
 
