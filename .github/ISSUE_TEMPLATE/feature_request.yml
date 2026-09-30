@@ -1,0 +1,39 @@
+name: Feature request
+description: Suggest a feature or improvement to Callsign.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search [existing issues](https://github.com/shylee2021/callsign/issues?q=is%3Aissue)
+        and the [roadmap](https://github.com/shylee2021/callsign#roadmap) first.
+        Keep each request focused on one problem. A request is a proposal, not approval
+        to implement it; agree on the scope with the maintainer before substantial work.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What are you trying to do, and what makes it difficult today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the behavior you want. You do not need to design the implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or proposed solution
+      description: Optional. Describe workarounds, another approach, or a mockup. Redact private information from attachments.
+
+  - type: checkboxes
+    id: implementation
+    attributes:
+      label: Interested in implementing this?
+      options:
+        - label: I would like to work on this after the maintainer agrees on the scope.

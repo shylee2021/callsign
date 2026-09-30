@@ -1,0 +1,85 @@
+name: Bug report
+description: Report a bug in Callsign.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search [existing issues](https://github.com/shylee2021/callsign/issues?q=is%3Aissue)
+        and check the [known limitations](https://github.com/shylee2021/callsign#known-limitations) first.
+        Report one problem per issue. If a detail is unknown, say so.
+
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened?
+      description: Describe the actual behavior and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include how often it happens. If it is intermittent or the steps are unknown, say so.
+      placeholder: |
+        1. Open Callsign and ...
+        2. Enter Mission Control using ...
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    id: callsign_version
+    attributes:
+      label: Callsign version
+      description: Shown in Settings > About as "Version X (build)". If you built Callsign from source, include the commit.
+    validations:
+      required: true
+
+  - type: input
+    id: macos_version
+    attributes:
+      label: macOS version
+      description: Include the build number (click the macOS version in System Settings > General > About) and whether it is a beta.
+      placeholder: "macOS 26.1 (25B78)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: accessibility
+    attributes:
+      label: Accessibility permission
+      description: Check System Settings > Privacy & Security > Accessibility for Callsign.
+      options:
+        - "Granted"
+        - "Not granted"
+        - "Not sure"
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Mac and Mission Control setup
+      description: Include details relevant to the problem; leave unknown details out.
+      placeholder: |
+        Mac model / chip:
+        Displays and scaling:
+        Spaces / fullscreen windows:
+        "Group windows by application" on or off:
+        "Displays have separate Spaces" on or off:
+        Callsign tag settings / affected apps:
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostic report
+      description: |
+        Optional, but very helpful when tags are missing or misplaced. In Callsign's Settings > General, turn on **Record diagnostics**, open Mission Control, then click **View diagnostic report…** and **Copy Report**.
+        The report includes app names and window titles. Redact anything private before pasting.
+      render: text
+
+  - type: textarea
+    id: attachments
+    attributes:
+      label: Screenshots, recordings, or logs
+      description: Optional. Redact private window titles, document contents, file paths, and other sensitive information before uploading.

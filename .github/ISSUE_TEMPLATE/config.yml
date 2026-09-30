@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Known limitations
+    url: https://github.com/shylee2021/callsign#known-limitations
+    about: Check current Mission Control limitations before reporting a problem.
