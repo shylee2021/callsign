@@ -23,7 +23,7 @@ python3 -m unittest discover -s Tools -p 'test_*.py' -v
 ```
 
 - The scheme's **default** test plan is `Callsign`, which also runs `.integration` tests. Those open real windows, create SkyLight Spaces, and depend on timing. Run them only when the user asks.
-- The build needs Xcode 27: `Callsign/AppIcon.icon` was saved with Xcode 27's Icon Composer, and Xcode 26's `actool` fails on it (`Could not open "AppIcon.icon"`). With Xcode 26, add `EXCLUDED_SOURCE_FILE_NAMES=AppIcon.icon ASSETCATALOG_COMPILER_APPICON_NAME=` to build with a generic icon, as CI's macOS 26 job does.
+- Xcode 27 and Xcode 26 both build the project, and CI requires both. Xcode 26's `actool` cannot read `Callsign/AppIcon.icon` (saved with Xcode 27's Icon Composer), so the app target's `[sdk=macosx26*]` build settings leave it out. Keep those settings when editing the icon or the target.
 - The project uses synchronized folders: files added under `Callsign/` or `CallsignTests/` join their target without editing `project.pbxproj`.
 
 ## Architecture
@@ -56,7 +56,7 @@ Platform/ holds the thin wrappers: `Accessibility` (AX reads with a bounded mess
 - **`ponytail:` comments** mark deliberate simplifications and say when to revisit them. Keep them accurate when you touch that code.
 - **Comments** explain why, not what; match the existing density.
 - **Debugging:** run `log stream --predicate 'subsystem == "com.shylee.Callsign"'`. Settings > General > Record diagnostics captures a report of the Dock AX tree and windows once Mission Control settles.
-- **Xcode 26 compiler crash:** pass SwiftUI binding setters as closures (`set: { controller.setLaunchAtLogin($0) }`), not method references (`set: controller.setLaunchAtLogin`). Swift 6.2 in Xcode 26.6 crashes in IRGen on the reference form. Xcode 27 builds it fine, so only CI's macOS 26 job would catch it.
+- **Xcode 26 compiler crash:** pass SwiftUI binding setters as closures (`set: { controller.setLaunchAtLogin($0) }`), not method references (`set: controller.setLaunchAtLogin`). Swift 6.2 in Xcode 26.6 crashes in IRGen on the reference form. Xcode 27 builds it fine, so only CI's macOS 26 job catches it.
 
 ## Boundaries
 

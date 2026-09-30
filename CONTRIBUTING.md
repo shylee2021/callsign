@@ -33,7 +33,7 @@ Callsign itself was built with substantial help from AI, and AI-assisted contrib
 
 ## Local builds and checks
 
-Building needs Xcode 27. The app icon, `Callsign/AppIcon.icon`, was saved with Xcode 27's Icon Composer, and Xcode 26's asset catalog compiler (`actool`) fails on it with `Could not open "AppIcon.icon"`. The Swift code itself also builds with Xcode 26. The appcast tools and their tests need only Python 3.
+Callsign builds with Xcode 27 or Xcode 26. The app icon, `Callsign/AppIcon.icon`, was saved with Xcode 27's Icon Composer, and Xcode 26's asset catalog compiler (`actool`) cannot read it, so builds with the macOS 26 SDK leave it out and show a generic icon. Releases are built with Xcode 27. The appcast tools and their tests need only Python 3.
 
 Open `Callsign.xcodeproj`, or run these commands from the repository root. The command-line signing overrides build ad hoc, without the maintainer's certificates; do not commit changes to the project's signing settings.
 
@@ -49,8 +49,6 @@ python3 -m unittest discover -s Tools -p 'test_*.py' -v
 
 The app is built at `/tmp/callsign-dev/Build/Products/Debug/Callsign.app`. An ad hoc signature changes with every build, so you may need to grant Accessibility access again after rebuilding.
 
-With Xcode 26, leave the icon out by adding `EXCLUDED_SOURCE_FILE_NAMES=AppIcon.icon ASSETCATALOG_COMPILER_APPICON_NAME=` to the `xcodebuild` commands, as CI's macOS 26 job does. The app then builds and runs with a generic icon.
-
 ### Test plans
 
 The `Callsign` scheme has two test plans:
@@ -62,7 +60,7 @@ Tag new tests that need a live desktop with `.tags(.integration)` so that the `U
 
 ### CI
 
-CI runs the `Unit` plan on macOS 27 with Xcode 27, and on macOS 26 with Xcode 26 without the app icon. The macOS 26 job is advisory: its failure does not fail the workflow. CI also runs the appcast tool tests.
+CI runs on pull requests and on pushes to `main`; opening a PR, even a draft, runs it for your branch. It runs the `Unit` plan on macOS 27 with Xcode 27 and on macOS 26 with Xcode 26, and the appcast tool tests. All three jobs must pass before a PR can merge.
 
 ## Verification
 
