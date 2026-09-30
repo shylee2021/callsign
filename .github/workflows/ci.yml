@@ -15,17 +15,11 @@ jobs:
           # GitHub has no macos-27 label yet; the Xcode 27 preview image runs macOS 27.0.
           - name: macOS 27
             runner: xcode-27
-            required: true
-            extra: ""
-          # macOS 26.6 with Xcode 26.6, GitHub's newest GA image. Fallback probe only.
-          # Its actool cannot read the Xcode 27 Icon Composer manifest, and the unit
-          # tests never need the icon, so it is left out of this job's build.
+          # macOS 26.6 with Xcode 26.6, GitHub's newest GA image. The project leaves the
+          # app icon out of macOS 26 SDK builds, since Xcode 26's actool cannot read it.
           - name: macOS 26
             runner: macos-26
-            required: false
-            extra: EXCLUDED_SOURCE_FILE_NAMES=AppIcon.icon ASSETCATALOG_COMPILER_APPICON_NAME=
     runs-on: ${{ matrix.runner }}
-    continue-on-error: ${{ !matrix.required }}
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain
@@ -36,7 +30,7 @@ jobs:
         run: >
           xcodebuild test -scheme Callsign -testPlan Unit
           -derivedDataPath /tmp/dd
-          CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ${{ matrix.extra }}
+          CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
           -skipPackagePluginValidation
   appcast:
     name: Appcast tool tests
