@@ -77,6 +77,10 @@ Callsign relies on the Dock's accessibility tree and private APIs to display tag
 
 I built Callsign with substantial help from AI. I'm still reviewing and cleaning up the code.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for issues, pull requests, local builds, and checks. Coding agents should also follow [AGENTS.md](AGENTS.md).
+
 <!-- ROADMAP -->
 ## Roadmap
 
@@ -87,10 +91,11 @@ I built Callsign with substantial help from AI. I'm still reviewing and cleaning
 - [ ] Localization
 - [ ] Project configuration
   - [ ] Swift lint/format config
-  - [ ] AGENTS.md
-- [ ] Contribution materials
-  - [ ] Contribution guide
-  - [ ] Issue template
+  - [x] AGENTS.md
+- [x] Contribution materials
+  - [x] [Contribution guide](CONTRIBUTING.md)
+  - [x] Issue forms
+  - [x] PR template
 - [ ] Developer documentation (e.g. architecture overview)
 - [ ] Homebrew tap
 - [ ] Better support for grouped window mode
